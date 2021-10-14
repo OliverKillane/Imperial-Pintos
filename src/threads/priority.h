@@ -1,4 +1,7 @@
 #ifndef THREADS_PRIORITY_H
+#define THREADS_PRIORITY_H
+
+#include <stdbool.h>
 
 /* The library for calculating threads' priorities and choosing which one to
    schedule accordingly
@@ -23,7 +26,7 @@
 */
 
 struct thread_priority {
-  // TODO: fill in
+  char adjusted_priority;
 };
 
 /* If false (default), use round-robin scheduler.
@@ -32,9 +35,9 @@ struct thread_priority {
 extern bool thread_mlfqs;
  
 /* Thread picking system */
-void tqueue_init();
-struct thread *tqueue_front();
-struct thread *tqueue_next();
+void tqueue_init(void);
+struct thread *tqueue_front(void);
+struct thread *tqueue_next(void);
 
 void tqueue_thread_init(struct thread *thread, struct thread *parent);
 void tqueue_add(struct thread *thread);
@@ -55,7 +58,7 @@ void mlfqs_tick(struct thread *thread);
 int mlfqs_get_recent_cpu(const struct thread *thread);
 void mlfqs_get_priority(const struct thread *thread);
 
-void mlfqs_decay();
-int mlfqs_get_load_avg();
+void mlfqs_decay(void);
+int mlfqs_get_load_avg(void);
 
 #endif /* threads/priority.h */
