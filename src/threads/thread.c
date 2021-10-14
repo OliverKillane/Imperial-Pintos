@@ -22,7 +22,7 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+static struct list ready_list; // TODO: remove for the scheduler
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -54,16 +54,12 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
 
-/* If false (default), use round-robin scheduler.
-   If true, use multi-level feedback queue scheduler.
-   Controlled by kernel command-line option "-mlfqs". */
-bool thread_mlfqs;
-
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
-static struct thread *next_thread_to_run (void);
+static struct thread *next_thread_to_run (void); // TODO: remove for 
+                                                 // the scheduler
 static void init_thread (struct thread *, const char *name, int priority);
 static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
@@ -87,10 +83,11 @@ static tid_t allocate_tid (void);
 void
 thread_init (void) 
 {
+  // TODO: add scheduler initialization
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
-  list_init (&ready_list);
+  list_init (&ready_list); // TODO: remove for the scheduler
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -121,7 +118,7 @@ thread_start (void)
 size_t
 threads_ready (void)
 {
-  return list_size (&ready_list);      
+  return list_size (&ready_list); // TODO: change up for the scheduler
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -129,6 +126,7 @@ threads_ready (void)
 void
 thread_tick (void) 
 {
+  // TODO: update mlqfs
   struct thread *t = thread_current ();
 
   /* Update statistics. */
@@ -173,6 +171,7 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
 {
+  // TODO: register the thread with the scheduler
   struct thread *t;
   struct kernel_thread_frame *kf;
   struct switch_entry_frame *ef;
@@ -228,6 +227,7 @@ thread_create (const char *name, int priority,
 void
 thread_block (void) 
 {
+  // TODO: inform the scheduler
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
 
@@ -246,13 +246,14 @@ thread_block (void)
 void
 thread_unblock (struct thread *t) 
 {
+  // TODO: inform the scheduler and reschedule if necessary (use front and pop)
   enum intr_level old_level;
 
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_push_back (&ready_list, &t->elem); // TODO: remove for the scheduler
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -295,6 +296,7 @@ thread_tid (void)
 void
 thread_exit (void) 
 {
+  // TODO: update to use scheduler
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
@@ -323,7 +325,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_push_back (&ready_list, &cur->elem); // TODO: remove for the scheduler
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -350,28 +352,32 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  // TODO: set priority in the priority calculator (if necessary, reschedule to
+  //       a new thread
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  // TODO: get priority from priority calculator (choose the one from donation
+  //       or mlfqs based on the thread_mlfqs)
+  return 0;
 }
 
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  // TODO: set niceness in the priority calculator (if necessary, reschedule to
+  //       a new thread
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
+  // TODO: get niceness from the priority calculator
   return 0;
 }
 
@@ -379,7 +385,7 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
+  // TODO: get load average from the priority calculator (integer?)
   return 0;
 }
 
@@ -387,10 +393,11 @@ thread_get_load_avg (void)
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
+  // TODO: get recent cpu for the current thread from the priority calculator
   return 0;
 }
-
+
+// TODO: remove next_thread_to_run from definition
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -466,6 +473,7 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
+  // TODO: register the thread with the scheduler
   enum intr_level old_level;
 
   ASSERT (t != NULL);
@@ -476,7 +484,6 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -503,7 +510,7 @@ alloc_frame (struct thread *t, size_t size)
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
 static struct thread *
-next_thread_to_run (void) 
+next_thread_to_run (void) // TODO: remove for the scheduler
 {
   if (list_empty (&ready_list))
     return idle_thread;
@@ -567,8 +574,9 @@ thread_schedule_tail (struct thread *prev)
 static void
 schedule (void) 
 {
+  // TODO: New priority-based scheduler
   struct thread *cur = running_thread ();
-  struct thread *next = next_thread_to_run ();
+  struct thread *next = next_thread_to_run (); // TODO: remove for the scheduler
   struct thread *prev = NULL;
 
   ASSERT (intr_get_level () == INTR_OFF);

@@ -192,6 +192,7 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
+  // TODO: inform the priority calculator about the priority donation
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
@@ -228,6 +229,7 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
+  // TODO: remove priority donation from the calculator
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
