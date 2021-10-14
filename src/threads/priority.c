@@ -8,8 +8,8 @@
 
 /* Informs the scheduler that the priority of the thread has changed */
 static void tqueue_priority_update(struct thread *thread); 
-static void donation_init();
-static void mlfqs_init();
+static void donation_init(void);
+static void mlfqs_init(void);
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -18,23 +18,25 @@ bool thread_mlfqs;
 
 /* Initializes the priority scheduler and its components */
 void
-tqueue_init() {
+tqueue_init(void) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
 }
 
 /* Retreives the next thread to be scheduled without popping it from the queue */
 struct thread *
-tqueue_front() {
+tqueue_front(void) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
+  return NULL;
 }
 
 /* Pops the next thread to be scheduled from the queue and returns it */
 struct thread *
-tqueue_next() {
+tqueue_next(void) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
+  return NULL;
 }
 
 /* Makes the scheduler acknowledge the thread and inherit the priority 
@@ -60,6 +62,13 @@ tqueue_remove(struct thread *thread) {
   // TODO: implementation
 }
 
+/* Initializes the priority donation system */
+void
+donation_init(void) {
+  // TODO: better description (like the ones in synch.c)
+  // TODO: implementation
+}
+
 /* Sets the base priority of a thread */
 void
 donation_set_priority(struct thread *thread, int priority) {
@@ -72,9 +81,11 @@ int
 donation_get_priority(const struct thread *thread) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
+  return 0;
 }
 
-/* Starts priority donation from one thread to another */  
+/* Starts priority donation from one thread to another. Each thread
+   can only donate to at most one other thread */  
 void
 donation_link(struct thread *donator, struct thread *donatee) {
   // TODO: better description (like the ones in synch.c)
@@ -84,6 +95,13 @@ donation_link(struct thread *donator, struct thread *donatee) {
 /* Stops all priority donations from that specific thread */
 void
 donation_unlink(struct thread *donator) {
+  // TODO: better description (like the ones in synch.c)
+  // TODO: implementation
+}
+
+/* Initializes the advanced scheduling calculator */
+void
+mlfqs_init(void) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
 }
@@ -100,6 +118,7 @@ int
 mlfqs_get_nice(const struct thread *thread) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
+  return 0;
 }
 
 /* Increments the recent_cpu of the thread */
@@ -114,6 +133,7 @@ int
 mlfqs_get_recent_cpu(const struct thread *thread) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
+  return 0;
 }
 
 /* Returns the priority calculated using mlfqs */
@@ -125,14 +145,15 @@ mlfqs_get_priority(const struct thread *thread) {
 
 /* Performs exponential average step on all recent_cpu and load_avg */
 void
-mlfqs_decay() {
+mlfqs_decay(void) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
 }
 
 /* Returns the load average */
 int
-mlfqs_get_load_avg() {
+mlfqs_get_load_avg(void) {
   // TODO: better description (like the ones in synch.c)
   // TODO: implementation
+  return 0;
 }
