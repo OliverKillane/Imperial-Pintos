@@ -37,6 +37,8 @@ unit-test-job:   # This job runs in the test stage.
     - echo "Testing"
     - make -C src/devices check -j$(( $(nproc --all) - 1 ))
    # - make -C src/threads check -j$(( $(nproc --all) - 1 ))
+  rules:
+    - when: manual
 
 lint-test-job:   # This job also runs in the test stage.
   stage: test    # It can run at the same time as unit-test-job (in parallel).
@@ -45,3 +47,5 @@ lint-test-job:   # This job also runs in the test stage.
     - echo "Linting code... This will take about 10 seconds."
     # - make -C src/devices lint -j$(( $(nproc --all) - 1 ))
     - echo "No lint issues found."
+  rules:
+    - when: manual
