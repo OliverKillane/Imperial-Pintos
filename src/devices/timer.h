@@ -3,6 +3,8 @@
 
 #include <round.h>
 #include <stdint.h>
+#include "threads/thread.h"
+#include "threads/synch.h"
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
@@ -12,6 +14,12 @@ void timer_calibrate (void);
 
 int64_t timer_ticks (void);
 int64_t timer_elapsed (int64_t);
+
+/* Timer structure to handle the timer_sleep calls */
+struct timer_entry {
+  struct semaphore thread_sema;
+  int64_t end;
+};
 
 /* Sleep and yield the CPU to other threads. */
 void timer_sleep (int64_t ticks);
