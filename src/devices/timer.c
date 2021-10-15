@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <priority_queue.h>
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
@@ -24,11 +25,20 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+/* A priority queue to hold the sleeping threads */
+static struct pqueue timer_entries;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+
+static bool timer_entry_less (const void *a_raw, const void *b_raw, void *aux UNUSED) {
+  const struct timer_entry *a = a_raw;
+  const struct timer_entry *b = b_raw;
+  return a->end < b->end;
+}
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -37,6 +47,9 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  if (!pqueue_init (&timer_entries, timer_entry_less, NULL))
+    PANIC("Failed to initialise the timer system.");
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -87,13 +100,32 @@ timer_elapsed (int64_t then)
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t ticks) 
+timer_sleep (int64_t wait_ticks) 
 {
-  int64_t start = timer_ticks ();
+  enum intr_level old;
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
+  if (wait_ticks <= 0)
+    return;
+
+  struct timer_entry curr;
+  curr.end = ticks + wait_ticks;
+  sema_init(&curr.thread_sema, 0);
+
+  ASSERT (!intr_context ());
+
+  old = intr_disable ();
+
+  /* busy waiting fallback behaviour if unable to push to priority queue (due 
+     to memory allocation failing - low memory available) */
+  while (curr.end > ticks && !pqueue_push (&timer_entries, &curr))
+  {
     thread_yield ();
+  }
+
+  if (curr.end > ticks)
+    sema_down(&curr.thread_sema);
+  
+  intr_set_level (old);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -171,7 +203,11 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  thread_tick ();
+  while(pqueue_size(&timer_entries) && 
+        ticks >= ((struct timer_entry *)pqueue_top(&timer_entries))->end) {
+    sema_up(&((struct timer_entry *)pqueue_pop(&timer_entries))->thread_sema);
+  }
+  thread_tick();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
