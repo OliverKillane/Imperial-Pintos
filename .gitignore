@@ -25,3 +25,6 @@
 
 # ignore vscode config files
 .vscode
+
+# ignore linter output
+lint.out
