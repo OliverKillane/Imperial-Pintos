@@ -7,7 +7,6 @@
 
 /* Informs the scheduler that the priority of the thread has changed */
 static void tqueue_priority_update(struct thread *thread);
-static void donation_init(void);
 static void mlfqs_init(void);
 
 /* If false (default), use round-robin scheduler.
@@ -23,8 +22,7 @@ void tqueue_init(void)
 	// TODO: implementation
 }
 
-/* Retreives the next thread to be scheduled without popping it from the
- * queue
+/* Retreives the next thread to be scheduled without popping it from the queue
  */
 struct thread *tqueue_front(void)
 {
@@ -66,39 +64,57 @@ void tqueue_remove(struct thread *thread)
 	// TODO: implementation
 }
 
-/* Initializes the priority donation system */
-void donation_init(void)
-{
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
-}
-
-/* Sets the base priority of a thread */
-void donation_set_priority(struct thread *thread, int priority)
-{
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
-}
-
-/* Gets the base priority of a thread */
-int donation_get_priority(const struct thread *thread)
-{
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
-	return 0;
-}
-
-/* Starts priority donation from one thread to another. Each thread
- * can only donate to at most one other thread
+/* Initializes the values in struct thread_priority inside the thread that
+ * correspond to the donation system
  */
-void donation_link(struct thread *donator, struct thread *donatee)
+void donation_thread_init(struct thread *thread)
 {
 	// TODO: better description (like the ones in synch.c)
 	// TODO: implementation
 }
 
-/* Stops all priority donations from that specific thread */
-void donation_unlink(struct thread *donator)
+/* Initializes the values in struct lcok_priority inside the lock that
+ * correspond to the donation system
+ */
+void donation_lock_init(struct lock *lock)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread is now being blocked by a lock. The thread
+ * cannot be blocked by any other lock
+ */
+void donation_thread_block(struct thread *thread, struct lock *lock)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread is no longer being blocked by the thread it was
+ * marked as blocked by. The thread must be blocked by another lock already.
+ * The lock the thread was blocked by must not be acquired by any thread.
+ */
+void donation_thread_unblock(struct thread *thread)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread has successfully acquired the lock. The lock cannot
+ * already be acquired by any other thread.
+ */
+void donation_thread_acquire(struct thread *thread, struct lock *lock)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread holding the lock has released it. The thread
+ * holding the lock cannot be blocked by any other lock. The lock must be
+ * already held by some thread.
+ */
+void donation_thread_release(struct lock *lock)
 {
 	// TODO: better description (like the ones in synch.c)
 	// TODO: implementation
