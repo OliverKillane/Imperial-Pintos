@@ -28,6 +28,9 @@ lint::
 	| grep -v -e "No space is necessary after a cast" --no-group-separator \
 	| tee -a lint.out;\
 	rm -f .checkpatch-camelcase.git.*
+	@if cat lint.out | grep -e WARNING -e ERROR -e CHECK; then \
+		exit 10; \
+	fi
 
 reformat::
 	@git diff $(GIT_BASE_COMMIT) --name-only 2>&1 | grep "\.[hc]$$" | while read file; \
