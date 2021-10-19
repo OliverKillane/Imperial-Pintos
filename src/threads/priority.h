@@ -1,6 +1,7 @@
 #ifndef THREADS_PRIORITY_H
 #define THREADS_PRIORITY_H
 
+#include <stdint.h>
 #include <stdbool.h>
 
 /* The library for calculating threads' priorities and choosing which one to
@@ -25,6 +26,10 @@
  * for synchronization. The thread queue should however disable interrupts on
  * its own as well, in case it gets called outside of interrupt context.
  */
+
+/* Forward declaration of lock and thread */
+struct lock;
+struct thread;
 
 struct lock_priority {
 	int8_t priority;
