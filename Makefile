@@ -26,6 +26,7 @@ lint::
 	| awk '{$$1=$$1;print}' | sed 's/.$$//' \
 	| grep -v -e PRI --no-group-separator \
 	| grep -v -e "No space is necessary after a cast" --no-group-separator \
+	| grep -v -e "Macros with complex values should be enclosed in parentheses" --no-group-separator \
 	| tee -a lint.out;\
 	rm -f .checkpatch-camelcase.git.*
 

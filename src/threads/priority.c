@@ -3,6 +3,7 @@
 // TODO: add template for the file
 
 #include "threads/priority.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 
 /* Informs the scheduler that the priority of the thread has changed */
