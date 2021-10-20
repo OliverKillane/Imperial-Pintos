@@ -62,6 +62,7 @@ struct thread *tqueue_front(void);
 struct thread *tqueue_next(void);
 
 void tqueue_thread_init(struct thread *thread, struct thread *parent);
+int tqueue_get_priority(const struct thread *thread);
 void tqueue_add(struct thread *thread);
 void tqueue_remove(struct thread *thread);
 
@@ -75,13 +76,15 @@ void donation_thread_unblock(struct thread *thread);
 void donation_thread_acquire(struct thread *thread, struct lock *lock);
 void donation_thread_release(struct lock *lock);
 
+void donation_set_base_priority(struct thread *thread);
+int donation_get_base_priority(const struct thread *thread);
+
 /* Advanced scheduler */
 void mlfqs_set_nice(struct thread *thread, int nice);
 int mlfqs_get_nice(const struct thread *thread);
 
 void mlfqs_tick(struct thread *thread);
 int mlfqs_get_recent_cpu(const struct thread *thread);
-int mlfqs_get_priority(const struct thread *thread);
 
 void mlfqs_decay(void);
 int mlfqs_get_load_avg(void);

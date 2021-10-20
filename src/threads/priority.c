@@ -41,6 +41,12 @@ void tqueue_init(void)
 		mlfqs_init();
 }
 
+/* Returns the current (not base) priority of the given thread */
+int tqueue_get_priority(const struct thread *thread)
+{
+	return thread->priority.priority;
+}
+
 /* Retrieves the next thread to be scheduled without popping it from the queue.
  * If there are no ready threads, returns NULL.
  */
@@ -224,6 +230,22 @@ void donation_thread_acquire(struct thread *thread, struct lock *lock)
 void donation_thread_release(struct lock *lock)
 {
 	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Sets the base priority of the thread. May cause the scheduler to update
+ * the next thread it wants to run.
+ */
+void donation_set_base_priority(struct thread *thread)
+{
+	// TODO: better description (like the onces in synch.c)
+	// TODO: implementation
+}
+
+/* Returns the base priority of the thread */
+int donation_get_base_priority(const struct thread *thread)
+{
+	// TODO: better description (like the onces in synch.c)
 	// TODO: implementation
 }
 
