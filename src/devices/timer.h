@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "threads/thread.h"
 #include "threads/synch.h"
+#include <priority_queue.h>
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
@@ -17,6 +18,7 @@ int64_t timer_elapsed(int64_t then);
 
 /* Timer structure to handle the timer_sleep calls */
 struct timer_entry {
+	struct pqueue_elem elem;
 	struct semaphore thread_sema;
 	int64_t end;
 };
