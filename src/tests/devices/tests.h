@@ -1,9 +1,9 @@
 #ifndef TESTS_DEVICES_TESTS_H
 #define TESTS_DEVICES_TESTS_H
 
-void run_test (const char *);
+void run_test(const char *arg);
 
-typedef void test_func (void);
+typedef void test_func(void);
 
 extern test_func test_alarm_single;
 extern test_func test_alarm_multiple;
@@ -40,9 +40,8 @@ extern test_func test_mlfqs_nice_10;
 extern test_func test_mlfqs_block;
 #endif
 
-void msg (const char *, ...);
-void fail (const char *, ...);
-void pass (void);
+void msg(const char *arg, ...);
+void fail(const char *arg, ...);
+void pass(void);
 
 #endif /* tests/devices/tests.h */
-
