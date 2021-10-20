@@ -25,7 +25,7 @@ build-job:       # This job runs in the build stage, which runs first.
   script:
     - echo "Compiling the code..."
     - make -C src/devices -j$(( $(nproc --all) - 1 )) -WError -Wno-unused-parameter -Wno-unused-function
-   # - make -C src/threads -j$(( $(nproc --all) - 1 )) -WError -Wno-unused-parameter -Wno-unused-function
+    - make -C src/threads -j$(( $(nproc --all) - 1 )) -WError -Wno-unused-parameter -Wno-unused-function
     - echo "Compile complete."
   rules:
     - when: manual
@@ -35,13 +35,13 @@ unit-test-job:   # This job runs in the test stage.
   stage: test    # It only starts when the job in the build stage completes successfully.
   script:
     - echo "Testing"
-    - make -C src/devices check -j$(( $(nproc --all) - 1 ))
-   # - make -C src/threads check -j$(( $(nproc --all) - 1 ))
+    - if [[ $(make -C src/devices check -j$(($(nproc --all)-1 ))) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
+    # - if [[ $(make -C src/threads check -j$(($(nproc --all)-1 )) -WError -Wno-unused-parameter -Wno-unused-function) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
 
 lint-test-job:   # This job also runs in the test stage.
   stage: test    # It can run at the same time as unit-test-job (in parallel).
   script:
     # Linting not yet available, will be added soon.
-    - echo "Linting code... This will take about 10 seconds."
-    # - make lint -j$(( $(nproc --all) - 1 ))
+    - echo "Linting code"
+    - make lint
     - echo "No lint issues found."
