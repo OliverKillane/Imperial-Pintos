@@ -171,32 +171,57 @@ static void tqueue_priority_update(struct thread *thread, int8_t new_priority)
 	intr_set_level(old_level);
 }
 
-/* Sets the base priority of a thread */
-void donation_set_priority(struct thread *thread, int priority)
-{
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
-}
-
-/* Gets the base priority of a thread */
-int donation_get_priority(const struct thread *thread)
-{
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
-	return 0;
-}
-
-/* Starts priority donation from one thread to another. Each thread
- * can only donate to at most one other thread
+/* Initializes the values in struct thread_priority inside the thread that
+ * correspond to the donation system
  */
-void donation_link(struct thread *donator, struct thread *donatee)
+void donation_thread_init(struct thread *thread)
 {
 	// TODO: better description (like the ones in synch.c)
 	// TODO: implementation
 }
 
-/* Stops all priority donations from that specific thread */
-void donation_unlink(struct thread *donator)
+/* Initializes the values in struct lcok_priority inside the lock that
+ * correspond to the donation system
+ */
+void donation_lock_init(struct lock *lock)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread is now being blocked by a lock. The thread
+ * cannot be blocked by any other lock
+ */
+void donation_thread_block(struct thread *thread, struct lock *lock)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread is no longer being blocked by the thread it was
+ * marked as blocked by. The thread must be blocked by another lock already.
+ * The lock the thread was blocked by must not be acquired by any thread.
+ */
+void donation_thread_unblock(struct thread *thread)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread has successfully acquired the lock. The lock cannot
+ * already be acquired by any other thread.
+ */
+void donation_thread_acquire(struct thread *thread, struct lock *lock)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Signifies that the thread holding the lock has released it. The thread
+ * holding the lock cannot be blocked by any other lock. The lock must be
+ * already held by some thread.
+ */
+void donation_thread_release(struct lock *lock)
 {
 	// TODO: better description (like the ones in synch.c)
 	// TODO: implementation
@@ -240,7 +265,7 @@ int mlfqs_get_recent_cpu(const struct thread *thread)
 }
 
 /* Returns the priority calculated using mlfqs */
-void mlfqs_get_priority(const struct thread *thread)
+int mlfqs_get_priority(const struct thread *thread)
 {
 	// TODO: better description (like the ones in synch.c)
 	// TODO: implementation
