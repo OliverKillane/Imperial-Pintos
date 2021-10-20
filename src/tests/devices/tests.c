@@ -20,7 +20,6 @@ static const struct test tests[] = {
 };
 #else
 static const struct test tests[] = {
-	{ "fixed-point", test_fixed_point },
 	{ "alarm-single", test_alarm_single },
 	{ "alarm-multiple", test_alarm_multiple },
 	{ "alarm-simultaneous", test_alarm_simultaneous },
@@ -30,6 +29,7 @@ static const struct test tests[] = {
 	{ "alarm-negative", test_alarm_negative },
 	{ "alarm-priority", test_alarm_priority },
 	{ "fixed-point", test_fixed_point },
+	{ "priority-queue", test_pqueue },
 	{ "priority-change", test_priority_change },
 	{ "priority-donate-one", test_priority_donate_one },
 	{ "priority-donate-multiple", test_priority_donate_multiple },

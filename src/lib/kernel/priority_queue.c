@@ -7,6 +7,7 @@
 #include "threads/malloc.h"
 #include <string.h>
 #include <debug.h>
+#include <stdio.h>
 
 static bool pqueue_grow(struct pqueue *pq);
 
