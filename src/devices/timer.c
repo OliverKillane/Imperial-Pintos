@@ -3,7 +3,6 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
-#include <priority_queue.h>
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
@@ -123,7 +122,7 @@ void timer_sleep(int64_t wait_ticks)
 	/* busy waiting fallback behaviour if unable to push to priority queue (due
 	 * to memory allocation failing - low memory available)
 	 */
-	while (curr.end > ticks && !pqueue_push(&timer_entries, &curr))
+	while (curr.end > ticks && !pqueue_push(&timer_entries, &curr.elem))
 		thread_yield();
 
 	if (curr.end > ticks)
@@ -206,8 +205,11 @@ static void timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
 	while (pqueue_size(&timer_entries) &&
-				 ticks >= ((struct timer_entry *)pqueue_top(&timer_entries))->end) {
-		sema_up(&((struct timer_entry *)pqueue_pop(&timer_entries))->thread_sema);
+				 ticks >= pqueue_entry(pqueue_top(&timer_entries), struct timer_entry,
+															 elem)
+													->end) {
+		sema_up(&pqueue_entry(pqueue_pop(&timer_entries), struct timer_entry, elem)
+										 ->thread_sema);
 	}
 	thread_tick();
 }
