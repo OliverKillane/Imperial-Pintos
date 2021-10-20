@@ -12,6 +12,7 @@ extern test_func test_alarm_no_busy_wait;
 extern test_func test_alarm_one;
 extern test_func test_alarm_zero;
 extern test_func test_alarm_negative;
+extern test_func test_fixed_point;
 
 #ifdef THREADS
 extern test_func test_alarm_priority;
