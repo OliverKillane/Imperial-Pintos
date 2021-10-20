@@ -1,8 +1,9 @@
 #ifndef THREADS_PRIORITY_H
 #define THREADS_PRIORITY_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <list.h>
 
 /* The library for calculating threads' priorities and choosing which one to
  * schedule accordingly
@@ -36,8 +37,17 @@ struct lock_priority {
 	struct thread_priority *donee;
 };
 
+
+/* Holds priority information used the the tqueue to schedule threads based 
+   on priority */
 struct thread_priority {
-	char adjusted_priority;
+  int8_t priority;   /* Priority level from PRI_MIN (0) to PRI_MAX (63) */
+};
+
+/* A round robin queue (using a list) that can itself be added to a list */
+struct ready_queue {
+   struct list thread_queue; /* Holds a queue of threads of the same priority */
+   struct list_elem elem;   /* Used to link the ready_queues together */
 };
 
 /* If false (default), use round-robin scheduler.
@@ -47,33 +57,30 @@ struct thread_priority {
 extern bool thread_mlfqs;
 
 /* Thread picking system */
-void tqueue_init(void);
-struct thread *tqueue_front(void);
-struct thread *tqueue_next(void);
+void tqueue_init (void);
+struct thread *tqueue_front (void);
+struct thread *tqueue_next (void);
 
-void tqueue_thread_init(struct thread *thread, struct thread *parent);
-void tqueue_add(struct thread *thread);
-void tqueue_remove(struct thread *thread);
+void tqueue_thread_init (struct thread *thread, struct thread *parent);
+void tqueue_add (struct thread *thread);
+void tqueue_remove (struct thread *thread);
 
 /* Priority donation system */
-void donation_thread_init(struct thread *thread);
-void donation_lock_init(struct lock *lock);
+void donation_set_priority (struct thread *thread, int priority);
+int donation_get_priority (const struct thread *thread);
 
-void donation_thread_block(struct thread *thread, struct lock *lock);
-void donation_thread_unblock(struct thread *thread);
-
-void donation_thread_acquire(struct thread *thread, struct lock *lock);
-void donation_thread_release(struct lock *lock);
+void donation_link (struct thread *donator, struct thread *donatee);
+void donation_unlink (struct thread *donator);
 
 /* Advanced scheduler */
-void mlfqs_set_nice(struct thread *thread, int nice);
-int mlfqs_get_nice(const struct thread *thread);
+void mlfqs_set_nice (struct thread *thread, int nice);
+int mlfqs_get_nice (const struct thread *thread);
 
-void mlfqs_tick(struct thread *thread);
-int mlfqs_get_recent_cpu(const struct thread *thread);
-void mlfqs_get_priority(const struct thread *thread);
+void mlfqs_tick (struct thread *thread);
+int mlfqs_get_recent_cpu (const struct thread *thread);
+void mlfqs_get_priority (const struct thread *thread);
 
-void mlfqs_decay(void);
-int mlfqs_get_load_avg(void);
+void mlfqs_decay (void);
+int mlfqs_get_load_avg (void);
 
 #endif /* threads/priority.h */
