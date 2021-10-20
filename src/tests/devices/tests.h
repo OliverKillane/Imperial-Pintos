@@ -13,6 +13,7 @@ extern test_func test_alarm_one;
 extern test_func test_alarm_zero;
 extern test_func test_alarm_negative;
 extern test_func test_fixed_point;
+extern test_func test_pqueue;
 
 #ifdef THREADS
 extern test_func test_alarm_priority;

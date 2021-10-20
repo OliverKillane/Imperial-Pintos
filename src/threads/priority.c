@@ -3,6 +3,7 @@
 #include "threads/interrupt.h"
 #include "threads/priority.h"
 #include "threads/thread.h"
+#include "threads/interrupt.h"
 
 /* Array of all ready lists, each ready list at priority (index + PRI_MIN). */
 static struct ready_queue ready_queue_array[1 + PRI_MAX - PRI_MIN];
