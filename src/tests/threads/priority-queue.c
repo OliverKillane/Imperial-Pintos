@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #define NUM_REPEAT 100
-#define NUM_ITEMS 6
+#define NUM_ITEMS 200
 
 _Static_assert(NUM_ITEMS % 2 == 0, "NUM_ITEMS must be even");
 
@@ -37,11 +37,11 @@ void test_pqueue(void)
 }
 
 /* Comparator for the values in the tests cases */
-bool test_pqueue_comparator(const void *a_raw, const void *b_raw,
-														void *aux UNUSED)
+bool test_pqueue_comparator(const struct pqueue_elem *a_raw,
+														const struct pqueue_elem *b_raw, void *aux UNUSED)
 {
-	const struct test_elem *a = a_raw;
-	const struct test_elem *b = b_raw;
+	const struct test_elem *a = pqueue_entry(a_raw, struct test_elem, elem);
+	const struct test_elem *b = pqueue_entry(b_raw, struct test_elem, elem);
 	return a->value < b->value;
 }
 
@@ -62,7 +62,7 @@ void shuffle(struct pqueue_elem **array, size_t cnt)
 void test_pqueue_push_pop(void)
 {
 	struct pqueue test_queue;
-	ASSERT(pqueue_init(&test_queue, test_pqueue_comparator, NULL));
+	pqueue_init(&test_queue, test_pqueue_comparator, NULL);
 
 	struct test_elem values[NUM_ITEMS];
 	struct pqueue_elem *shuffled_values[NUM_ITEMS];
@@ -75,7 +75,7 @@ void test_pqueue_push_pop(void)
 	for (int repeat = 0; repeat < NUM_REPEAT; repeat++) {
 		shuffle(shuffled_values, NUM_ITEMS);
 		for (int i = 0; i < NUM_ITEMS; i++)
-			ASSERT(pqueue_push(&test_queue, shuffled_values[i]));
+			pqueue_push(&test_queue, shuffled_values[i]);
 		for (int i = 0; i < NUM_ITEMS; i++) {
 			ASSERT(pqueue_entry(pqueue_top(&test_queue), struct test_elem, elem)
 										 ->value == i);
@@ -89,7 +89,7 @@ void test_pqueue_push_pop(void)
 void test_pqueue_remove(void)
 {
 	struct pqueue test_queue;
-	ASSERT(pqueue_init(&test_queue, test_pqueue_comparator, NULL));
+	pqueue_init(&test_queue, test_pqueue_comparator, NULL);
 
 	struct test_elem values[NUM_ITEMS];
 	struct pqueue_elem *shuffled_values[NUM_ITEMS];
@@ -102,7 +102,7 @@ void test_pqueue_remove(void)
 	for (int repeat = 0; repeat < NUM_REPEAT; repeat++) {
 		shuffle(shuffled_values, NUM_ITEMS);
 		for (int i = 0; i < NUM_ITEMS; i++)
-			ASSERT(pqueue_push(&test_queue, shuffled_values[i]));
+			pqueue_push(&test_queue, shuffled_values[i]);
 		for (int i = NUM_ITEMS / 2 - 1; i >= 0; i--)
 			pqueue_remove(&test_queue, &values[i].elem);
 

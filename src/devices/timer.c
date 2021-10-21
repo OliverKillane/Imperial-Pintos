@@ -34,11 +34,11 @@ static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 static void real_time_delay(int64_t num, int32_t denom);
 
-static bool timer_entry_less(const void *a_raw, const void *b_raw,
-														 void *aux UNUSED)
+static bool timer_entry_less(const struct pqueue_elem *a_raw,
+														 const struct pqueue_elem *b_raw, void *aux UNUSED)
 {
-	const struct timer_entry *a = a_raw;
-	const struct timer_entry *b = b_raw;
+	const struct timer_entry *a = pqueue_entry(a_raw, struct timer_entry, elem);
+	const struct timer_entry *b = pqueue_entry(b_raw, struct timer_entry, elem);
 
 	return a->end < b->end;
 }
@@ -50,9 +50,7 @@ void timer_init(void)
 {
 	pit_configure_channel(0, 2, TIMER_FREQ);
 	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
-
-	if (!pqueue_init(&timer_entries, timer_entry_less, NULL))
-		PANIC("Failed to initialise the timer system.");
+	pqueue_init(&timer_entries, timer_entry_less, NULL);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -112,6 +110,7 @@ void timer_sleep(int64_t wait_ticks)
 
 	struct timer_entry curr;
 
+	pqueue_elem_init(&curr.elem);
 	curr.end = ticks + wait_ticks;
 	sema_init(&curr.thread_sema, 0);
 
@@ -119,12 +118,7 @@ void timer_sleep(int64_t wait_ticks)
 
 	old = intr_disable();
 
-	/* busy waiting fallback behaviour if unable to push to priority queue (due
-	 * to memory allocation failing - low memory available)
-	 */
-	while (curr.end > ticks && !pqueue_push(&timer_entries, &curr.elem))
-		thread_yield();
-
+	pqueue_push(&timer_entries, &curr.elem);
 	if (curr.end > ticks)
 		sema_down(&curr.thread_sema);
 
