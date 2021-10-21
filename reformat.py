@@ -38,7 +38,10 @@ with open(sys.argv[1], "r") as f:
         # In the middle of a block comment
         elif(inComment == True):
             if (not line.lstrip().startswith('*')):
-                output += ('\t' * lastStartPos) + " * " +  line.lstrip() + '\n'
+                if len(line.lstrip()) != 0:
+                    output += ('\t' * lastStartPos) + " * " +  line.lstrip() + '\n'
+                else:
+                    output += ('\t' * lastStartPos) + " *\n'
             else:
                 output += line.rstrip() + '\n'
         
