@@ -1,8 +1,18 @@
+#ifndef __LIB_KERNEL_FIXED_POINT_H
+#define __LIB_KERNEL_FIXED_POINT_H
+
+/* A fixed point arithmetic library.
+ *
+ * Decimal place is situated after position (BINARY_POINT)
+ *         <------(>0)----->.<----(<0)---->
+ *
+ * Default BINARY POINT is 14 (for a 17-14 format, 1<<14 = 0x2000), though this
+ * can be altered easily.
+ */
+
 #include <stdint.h>
 
-static const int32_t BINARY_POINT = 1 << 14;
-
-const int32_t PRI_MAX = 63;
+#define BINARY_POINT 0x2000
 
 typedef struct fixed32 {
 	int32_t val;
@@ -76,49 +86,4 @@ inline fixed32 div_i_f(int32_t n, fixed32 x)
 	return div(int_to_fixed(n), x);
 }
 
-inline int32_t calc_load_avg(int32_t old_load_avg, int32_t ready_threads)
-{
-	// Preparing constants used in this function
-	fixed32 fifty_nine = int_to_fixed(59);
-	fixed32 sixty = int_to_fixed(60);
-	fixed32 one = int_to_fixed(1);
-	fixed32 fifty_nine_sixtieths = div(fifty_nine, sixty);
-	fixed32 one_sixtieth = div(one, sixty);
-
-	// calculating (59/60) * old_load_avg
-	fixed32 old_load_weighted = mult_f_i(fifty_nine_sixtieths, old_load_avg);
-	// calculating (1/60) * ready_threads
-	fixed32 new_load_weighted = mult_f_i(one_sixtieth, ready_threads);
-	// calculating (59/60) * old_load_avg + (1/60) * ready_threads
-	fixed32 new_load_avg = add(old_load_weighted, new_load_weighted);
-	return fixed_to_int_round(new_load_avg);
-}
-
-inline int32_t calc_priority(int32_t recent_cpu, int32_t nice)
-{
-	// calculating recent_cpu / 4
-	fixed32 one_fourth_recent_cpu = div_f_i(int_to_fixed(recent_cpu), 4);
-	// calculating (recent_cpu / 4) - (nice * 2)
-	fixed32 inverse_priority = sub_f_i(one_fourth_recent_cpu, nice * 2);
-	// calculating PRI_MAX - (recent_cpu / 4) - (nice * 2)
-	fixed32 new_priority = sub_i_f(PRI_MAX, inverse_priority);
-	return fixed_to_int_round(new_priority);
-}
-
-inline int32_t calc_recent_cpu(int32_t load_avg, int32_t recent_cpu,
-															 int32_t nice)
-{
-	// calculating 2 * load_avg
-	int32_t twice_load_avg = 2 * load_avg;
-	// calculating 2 * load_avg + 1
-	fixed32 twice_load_avg_and_one = int_to_fixed(twice_load_avg + 1);
-	// calculating (2 * load_avg) / (2 * load_avg + 1)
-	fixed32 load_avg_ratio = div_i_f(twice_load_avg, twice_load_avg_and_one);
-
-	// calculating (2 * load_avg) / (2 * load_avg + 1) * recent_cpu
-	fixed32 discounted_recent_cpu = mult_f_i(load_avg_ratio, recent_cpu);
-
-	// calculating (2 * load_avg) / (2 * load_avg + 1) * recent_cpu + nice
-	fixed32 new_recent_cpu = add_f_i(discounted_recent_cpu, nice);
-	return fixed_to_int_round(new_recent_cpu);
-}
+#endif

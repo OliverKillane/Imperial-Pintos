@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <list.h>
 #include <priority_queue.h>
+#include <fixed-point.h>
 
 /* The library for calculating threads' priorities and choosing which one to
  * schedule accordingly
@@ -35,8 +36,8 @@ struct thread;
 
 struct donation_node {
 	struct donation_node *donee;
-	int8_t priority; /* Priority level from PRI_MIN (0) to PRI_MAX (63) */
-	bool pqueue_fallback;
+	int8_t priority;          /* Priority from PRI_MIN (0) to PRI_MAX (63) */
+	bool pqueue_fallback;     /* Fallback or  */
 	union {
 		struct pqueue_elem pqueue_elem;
 		struct list_elem list_elem;
@@ -52,7 +53,14 @@ struct donation_node {
  */
 struct thread_priority {
 	int8_t base_priority;
-	struct donation_node donation_node;
+	union {
+		struct {
+			int8_t priority;     /* Priority from PRI_MIN (0) to PRI_MAX (63) */
+			int8_t niceness;     /* Niceness ranges from 20 to -20 */
+			fixed32 recent_cpu;  /* Measure of cpu usage */
+		};
+		struct donation_node donation_node;
+	};
 };
 
 /* A round robin queue (using a list) that can itself be added to a list */
@@ -76,6 +84,9 @@ void tqueue_thread_init(struct thread *thread, struct thread *parent);
 int tqueue_get_priority(const struct thread *thread);
 void tqueue_add(struct thread *thread);
 void tqueue_remove(struct thread *thread);
+
+/* get tqueue size */
+int32_t tqueue_get_size(void);
 
 /* Priority donation system */
 void donation_thread_init(struct thread *thread);
