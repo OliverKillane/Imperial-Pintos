@@ -8,18 +8,16 @@
 #include <fixed-point.h>
 #include <stdbool.h>
 
+bool fixed_equal(fixed32 a, fixed32 b);
+void sub_test(void);
+void fixed_to_int_test(void);
+void mult_test(void);
+void add_test(void);
+void test_fixed_point(void);
+
 bool fixed_equal(fixed32 a, fixed32 b)
 {
 	return a.val == b.val;
-}
-
-void test_fixed_point(void)
-{
-	add_test();
-	sub_test();
-	fixed_to_int_test();
-	mult_test();
-	pass();
 }
 
 void sub_test(void)
@@ -47,7 +45,6 @@ void fixed_to_int_test(void)
 {
 	fixed32 HALF = div_i_f(1, int_to_fixed(2));
 	fixed32 SEVEN = int_to_fixed(7);
-	fixed32 FIVE = int_to_fixed(5);
 	// test that round(0.5 + 7) == 8
 	ASSERT(fixed_to_int_round(add(SEVEN, HALF)) == 8);
 
@@ -90,4 +87,13 @@ void add_test(void)
 
 	// test that 0.5 + 1 = 0.5 + 1.0
 	ASSERT(fixed_equal(add_f_i(HALF, 1), add(HALF, int_to_fixed(1))));
+}
+
+void test_fixed_point(void)
+{
+	add_test();
+	sub_test();
+	fixed_to_int_test();
+	mult_test();
+	pass();
 }

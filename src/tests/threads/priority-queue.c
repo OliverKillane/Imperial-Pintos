@@ -21,6 +21,7 @@ struct test_elem {
 	int value;
 };
 
+void test_pqueue(void);
 static pqueue_less_func test_pqueue_comparator;
 static void shuffle(struct pqueue_elem **, size_t);
 static void test_pqueue_push_pop(void);
