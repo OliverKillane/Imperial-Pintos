@@ -3,6 +3,7 @@
 #include "threads/interrupt.h"
 #include "threads/priority.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include "threads/interrupt.h"
 
 /* Array of all ready lists, each ready list at priority (index + PRI_MIN). */
@@ -44,7 +45,7 @@ void tqueue_init(void)
 /* Returns the current (not base) priority of the given thread */
 int tqueue_get_priority(const struct thread *thread)
 {
-	return thread->priority.priority;
+	return thread->priority.donation_node.priority;
 }
 
 /* Retrieves the next thread to be scheduled without popping it from the queue.
@@ -69,8 +70,8 @@ struct thread *tqueue_front(void)
 	return front_thread;
 }
 
-/* Pops the next thread to be scheduled from the queue and returns it.
- * If there are no ready threads, returns NULL.
+/* Puths the next thread to be scheduled to the back of the queue and returns
+ * it. If there are no ready threads, returns NULL.
  */
 struct thread *tqueue_next(void)
 {
@@ -98,7 +99,8 @@ void tqueue_thread_init(struct thread *thread, struct thread *parent)
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	memcpy(&thread->priority, &parent->priority, sizeof(struct thread_priority));
+	thread->priority.base_priority = parent->priority.base_priority;
+	donation_thread_init(thread);
 	tqueue_add(thread);
 
 	intr_set_level(old_level);
@@ -128,7 +130,7 @@ void tqueue_add(struct thread *thread)
 	old_level = intr_disable();
 
 	struct ready_queue *r_list =
-					&ready_queue_array[thread->priority.priority - PRI_MIN];
+					&ready_queue_array[thread->priority.donation_node.priority - PRI_MIN];
 
 	if (list_empty(&r_list->thread_queue))
 		list_insert_ordered(&nonempty_ready_queues, &r_list->elem, ready_queue_cmp,
@@ -151,7 +153,7 @@ void tqueue_remove(struct thread *thread)
 	old_level = intr_disable();
 
 	struct ready_queue *r_list =
-					&ready_queue_array[thread->priority.priority - PRI_MIN];
+					&ready_queue_array[thread->priority.donation_node.priority - PRI_MIN];
 
 	list_remove(&thread->elem);
 
@@ -168,9 +170,9 @@ static void tqueue_priority_update(struct thread *thread, int8_t new_priority)
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	if (thread->priority.priority != new_priority) {
+	if (thread->priority.donation_node.priority != new_priority) {
 		tqueue_remove(thread);
-		thread->priority.priority = new_priority;
+		thread->priority.donation_node.priority = new_priority;
 		tqueue_add(thread);
 	}
 
@@ -190,6 +192,13 @@ void donation_thread_init(struct thread *thread)
  * correspond to the donation system
  */
 void donation_lock_init(struct lock *lock)
+{
+	// TODO: better description (like the ones in synch.c)
+	// TODO: implementation
+}
+
+/* Frees the resources of the thread that are related to priority donaiton */
+void donation_thread_destroy(struct thread *thread)
 {
 	// TODO: better description (like the ones in synch.c)
 	// TODO: implementation
@@ -233,10 +242,10 @@ void donation_thread_release(struct lock *lock)
 	// TODO: implementation
 }
 
-/* Sets the base priority of the thread. May cause the scheduler to update
- * the next thread it wants to run.
+/* Sets the base priority of the thread. Can only be called on a thread that is
+ * not blocked by anything.
  */
-void donation_set_base_priority(struct thread *thread)
+void donation_set_base_priority(struct thread *thread, int base_priority)
 {
 	// TODO: better description (like the onces in synch.c)
 	// TODO: implementation

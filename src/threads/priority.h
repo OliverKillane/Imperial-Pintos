@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <list.h>
+#include <priority_queue.h>
 
 /* The library for calculating threads' priorities and choosing which one to
  * schedule accordingly
@@ -32,16 +33,26 @@
 struct lock;
 struct thread;
 
-struct lock_priority {
-	int8_t priority;
-	struct thread_priority *donee;
+struct donation_node {
+	struct donation_node *donee;
+	int8_t priority; /* Priority level from PRI_MIN (0) to PRI_MAX (63) */
+	bool pqueue_fallback;
+	union {
+		struct pqueue_elem pqueue_elem;
+		struct list_elem list_elem;
+	};
+	union {
+		struct pqueue items_pqueue;
+		struct list items_list;
+	};
 };
 
 /* Holds priority information used the tqueue to schedule threads based
  * on priority
  */
 struct thread_priority {
-	int8_t priority; /* Priority level from PRI_MIN (0) to PRI_MAX (63) */
+	int8_t base_priority;
+	struct donation_node donation_node;
 };
 
 /* A round robin queue (using a list) that can itself be added to a list */
@@ -69,6 +80,7 @@ void tqueue_remove(struct thread *thread);
 /* Priority donation system */
 void donation_thread_init(struct thread *thread);
 void donation_lock_init(struct lock *lock);
+void donation_thread_destroy(struct thread *thread);
 
 void donation_thread_block(struct thread *thread, struct lock *lock);
 void donation_thread_unblock(struct thread *thread);
@@ -76,7 +88,7 @@ void donation_thread_unblock(struct thread *thread);
 void donation_thread_acquire(struct thread *thread, struct lock *lock);
 void donation_thread_release(struct lock *lock);
 
-void donation_set_base_priority(struct thread *thread);
+void donation_set_base_priority(struct thread *thread, int base_priority);
 int donation_get_base_priority(const struct thread *thread);
 
 /* Advanced scheduler */
