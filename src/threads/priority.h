@@ -26,40 +26,43 @@
  * the rescheduling, it has to be callable from an interrupt context, so
  * therefore cannot use synchronization primitives. However, everything else is
  * only called only in non-interrupt context, so can use primitives from sync.h
- * for synchronization. The thread queue should however disable interrupts on
- * its own as well, in case it gets called outside of interrupt context.
+ * for synchronization. Particularly, the tree traversal in the donation system
+ * uses hand-over-hand locking using semaphores (we cannot use the locks since
+ * then they would have to be added to the donation system). The thread queue
+ * should however disable interrupts on its own as well, in case it gets called
+ * outside of interrupt context.
  */
 
 /* Forward declaration of lock and thread */
 struct lock;
 struct thread;
 
-struct donation_node {
-	struct donation_node *donee;
-	int8_t priority;          /* Priority from PRI_MIN (0) to PRI_MAX (63) */
-	bool pqueue_fallback;     /* Fallback or  */
-	union {
-		struct pqueue_elem pqueue_elem;
-		struct list_elem list_elem;
-	};
-	union {
-		struct pqueue items_pqueue;
-		struct list items_list;
-	};
+/* Maximum depth to which the donation is updated */
+#define DONATION_MAX_DEPTH 16
+_Static_assert(DONATION_MAX_DEPTH, "DONATION_MAX_DEPTH must be positive");
+
+/* Priority data about the lock used in the priority donation system */
+struct lock_priority {
+	int8_t priority; /* Lock's current computed priority */
+	struct thread *donee; /* The thread that receives the lock's priority */
+	struct pqueue_elem elem; /* Used in donee's pqueue of donors */
+	struct list donors; /* Threads donating their priority to the lock */
 };
 
-/* Holds priority information used the tqueue to schedule threads based
- * on priority
- */
+/* Priority data about the thread used in both scheduling systems */
 struct thread_priority {
-	int8_t base_priority;
+	int8_t priority; /* Thread's current computed priority */
 	union {
 		struct {
-			int8_t priority;     /* Priority from PRI_MIN (0) to PRI_MAX (63) */
-			int8_t niceness;     /* Niceness ranges from 20 to -20 */
-			fixed32 recent_cpu;  /* Measure of cpu usage */
+			int8_t niceness; /* Niceness ranges from 20 to -20 */
+			fixed32 recent_cpu; /* Measure of cpu usage */
 		};
-		struct donation_node donation_node;
+		struct {
+			int8_t base_priority; /* Thread's base priority */
+			struct lock *donee; /* The lock that receives the thread's priority */
+			struct list_elem elem; /* Used in donee's list of donors */
+			struct pqueue donors; /* Locks donating their priority to the thread */
+		};
 	};
 };
 
@@ -84,8 +87,6 @@ void tqueue_thread_init(struct thread *thread, struct thread *parent);
 int tqueue_get_priority(const struct thread *thread);
 void tqueue_add(struct thread *thread);
 void tqueue_remove(struct thread *thread);
-
-/* get tqueue size */
 int32_t tqueue_get_size(void);
 
 /* Priority donation system */

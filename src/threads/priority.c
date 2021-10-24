@@ -1,6 +1,6 @@
+#include "threads/priority.h"
 #include <string.h>
 #include "threads/interrupt.h"
-#include "threads/priority.h"
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include "threads/interrupt.h"
@@ -22,6 +22,17 @@ static int32_t num_threads;
 static void tqueue_priority_update(struct thread *thread, int8_t new_priority);
 static bool ready_queue_cmp(const struct list_elem *a,
 														const struct list_elem *b, void *aux UNUSED);
+
+/* General helper functions for the priority donation system */
+inline list_less_func donation_thread_less_func;
+inline pqueue_less_func donation_lock_less_func;
+inline void donation_cascading_update(struct thread *thread, struct lock *lock,
+																			bool is_curr_thread);
+inline void donation_thread_update_donee(struct thread *thread);
+inline void donation_lock_update_donee(struct lock *lock);
+inline void donation_thread_update_donor(struct thread *thread);
+inline void donation_lock_update_donor(struct lock *lock);
+
 static void mlfqs_init(void);
 static void mlfqs_update_priority(struct thread *thread);
 static void mlfqs_decay_thread(struct thread *thread);
@@ -55,7 +66,7 @@ void tqueue_init(void)
 /* Returns the current (not base) priority of the given thread */
 int tqueue_get_priority(const struct thread *thread)
 {
-	return thread->priority.donation_node.priority;
+	return thread->priority.priority;
 }
 
 /* Retrieves the next thread to be scheduled without popping it from the queue.
@@ -104,7 +115,9 @@ struct thread *tqueue_next(void)
 	return next_thread;
 }
 
-/* Add a thread to the scheduler with the priority of the parent thread. */
+/* Add a thread to the scheduler with the priority inherited from
+ * the parent thread.
+ */
 void tqueue_thread_init(struct thread *thread, struct thread *parent)
 {
 	thread->priority.base_priority = parent->priority.base_priority;
@@ -136,7 +149,7 @@ void tqueue_add(struct thread *thread)
 	old_level = intr_disable();
 
 	struct ready_queue *r_list =
-					&ready_queue_array[thread->priority.donation_node.priority - PRI_MIN];
+					&ready_queue_array[thread->priority.priority - PRI_MIN];
 
 	if (list_empty(&r_list->thread_queue))
 		list_insert_ordered(&nonempty_ready_queues, &r_list->elem, ready_queue_cmp,
@@ -161,7 +174,7 @@ void tqueue_remove(struct thread *thread)
 	old_level = intr_disable();
 
 	struct ready_queue *r_list =
-					&ready_queue_array[thread->priority.donation_node.priority - PRI_MIN];
+					&ready_queue_array[thread->priority.priority - PRI_MIN];
 
 	list_remove(&thread->elem);
 
@@ -180,9 +193,9 @@ static void tqueue_priority_update(struct thread *thread, int8_t new_priority)
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	if (thread->priority.donation_node.priority != new_priority) {
+	if (thread->priority.priority != new_priority) {
 		tqueue_remove(thread);
-		thread->priority.donation_node.priority = new_priority;
+		thread->priority.priority = new_priority;
 		tqueue_add(thread);
 	}
 
@@ -195,86 +208,236 @@ int32_t tqueue_get_size(void)
 }
 
 /* Initializes the values in struct thread_priority inside the thread that
- * correspond to the donation system
+ * correspond to the donation system, as well as the semaphore-based guard for
+ * that data
  */
 void donation_thread_init(struct thread *thread)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	ASSERT(intr_get_level() == INTR_OFF);
+	sema_init(&thread->priority_guard, 1);
+	thread->priority.priority = thread->priority.base_priority;
+	thread->priority.donee = NULL;
+	pqueue_init(&thread->priority.donors, donation_lock_less_func, NULL);
 }
 
 /* Initializes the values in struct lock_priority inside the lock that
- * correspond to the donation system
+ * correspond to the donation system, as well as the semaphore-based guard for
+ * that data
  */
 void donation_lock_init(struct lock *lock)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	sema_init(&lock->priority_guard, 1);
+	lock->priority.priority = PRI_MIN;
+	lock->priority.donee = NULL;
+	pqueue_elem_init(&lock->priority.elem);
+	list_init(&lock->priority.donors);
 }
 
 /* Frees the resources of the thread that are related to priority donation */
 void donation_thread_destroy(struct thread *thread)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	ASSERT(intr_get_level() == INTR_OFF);
+	pqueue_destroy(&thread->priority.donors);
 }
 
 /* Signifies that the thread is now being blocked by a lock. The thread
- * cannot be blocked by any other lock
+ * cannot be blocked by any other lock. The function blocks the access to the
+ * data of both thread and the lock.
  */
 void donation_thread_block(struct thread *thread, struct lock *lock)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	sema_down(&thread->priority_guard);
+	sema_down(&lock->priority_guard);
+
+	ASSERT(!thread->priority.donee);
+	thread->priority.donee = lock;
+	list_insert_ordered(&lock->priority.donors, &thread->priority.elem,
+											donation_thread_less_func, NULL);
+	donation_cascading_update(thread, NULL, true);
 }
 
 /* Signifies that the thread is no longer being blocked by the thread it was
  * marked as blocked by. The thread must be blocked by another lock already.
  * The lock the thread was blocked by must not be acquired by any thread.
+ * The function blocks the access to the data of both thread and the lock that
+ * it has been blocked by.
  */
 void donation_thread_unblock(struct thread *thread)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	sema_down(&thread->priority_guard);
+	ASSERT(thread->priority.donee);
+
+	struct lock *lock = thread->priority.donee;
+	sema_down(&lock->priority_guard);
+	ASSERT(!lock->priority.donee);
+
+	list_remove(&thread->priority.elem);
+	thread->priority.donee = NULL;
+	donation_lock_update_donee(lock);
+
+	sema_up(&thread->priority_guard);
+	sema_up(&lock->priority_guard);
 }
 
 /* Signifies that the thread has successfully acquired the lock. The lock cannot
- * already be acquired by any other thread.
+ * already be acquired by any other thread. The function blocks the access to
+ * the data of both thread and the lock.
  */
 void donation_thread_acquire(struct thread *thread, struct lock *lock)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	sema_down(&lock->priority_guard);
+	sema_down(&thread->priority_guard);
+	ASSERT(!lock->priority.donee);
+	lock->priority.donee = thread;
+	pqueue_push(&lock->priority.donee->priority.donors, &lock->priority.elem);
+	donation_cascading_update(NULL, lock, false);
 }
 
 /* Signifies that the thread holding the lock has released it. The thread
  * holding the lock cannot be blocked by any other lock. The lock must be
- * already held by some thread.
+ * already held by some thread. The function blocks the access to the
+ * data of both lock and the thread that was acquiring it.
  */
 void donation_thread_release(struct lock *lock)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	sema_down(&lock->priority_guard);
+	ASSERT(lock->priority.donee);
+
+	struct thread *thread = lock->priority.donee;
+	sema_down(&thread->priority_guard);
+	ASSERT(!lock->priority.donee->priority.donee);
+
+	pqueue_remove(&thread->priority.donors, &lock->priority.elem);
+	lock->priority.donee = NULL;
+	donation_thread_update_donee(thread);
+
+	sema_up(&lock->priority_guard);
+	sema_up(&thread->priority_guard);
 }
 
+/* Sets the base priority of the thread. The thread must not be
+ * blocked by any other thread. New base priority must be
+ * between PRI_MIN and PRI_MAX. The function blocks access to thread's priority
+ * data.
+ */
 void donation_set_base_priority(struct thread *thread, int base_priority)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	sema_up(&thread->priority_guard);
+	ASSERT(!thread->priority.donee);
+	ASSERT(base_priority >= PRI_MIN && base_priority <= PRI_MAX);
+
+	thread->priority.base_priority = base_priority;
+	donation_thread_update_donee(thread);
+
+	sema_down(&thread->priority_guard);
 }
 
+/* Returns the base priority of the thread */
 int donation_get_base_priority(const struct thread *thread)
 {
-	// TODO: better description (like the ones in synch.c)
-	// TODO: implementation
+	return thread->priority.base_priority;
+}
+
+/* Updates the donated priority of DONATION_MAX_DEPTH threads down the line.
+ * It uses hand-over-hand locking to traverse to the subsequent donees. It
+ * assumes that the initial donor and its donee already have their guards
+ * acquired.
+ */
+void donation_cascading_update(struct thread *thread, struct lock *lock,
+															 bool is_curr_thread)
+{
+	for (int depth = 0; (depth < DONATION_MAX_DEPTH &&
+											 ((is_curr_thread && thread->priority.donee) ||
+											 (!is_curr_thread && lock->priority.donee)));
+			 depth++, is_curr_thread ^= true) {
+		if (is_curr_thread) {
+			lock = thread->priority.donee;
+			if (depth)
+				sema_down(&lock->priority_guard);
+			donation_thread_update_donor(thread);
+			donation_lock_update_donee(lock);
+			sema_up(&thread->priority_guard);
+		} else {
+			thread = lock->priority.donee;
+			if (depth)
+				sema_down(&thread->priority_guard);
+			donation_lock_update_donor(lock);
+			donation_thread_update_donee(thread);
+			sema_up(&lock->priority_guard);
+		}
+	}
+	if (is_curr_thread)
+		sema_up(&thread->priority_guard);
+	else
+		sema_up(&lock->priority_guard);
+}
+
+/* Comparison function for donor threads stored in the donee lock */
+bool donation_thread_less_func(const struct list_elem *a_raw,
+															 const struct list_elem *b_raw, void *aux UNUSED)
+{
+	struct thread *a = list_entry(a_raw, struct thread, priority.elem);
+	struct thread *b = list_entry(b_raw, struct thread, priority.elem);
+	return a->priority.priority > b->priority.priority;
+}
+
+/* Comparison function for the donor locks stored in the donee thread */
+bool donation_lock_less_func(const struct pqueue_elem *a_raw,
+														 const struct pqueue_elem *b_raw, void *aux UNUSED)
+{
+	struct lock *a = pqueue_entry(a_raw, struct lock, priority.elem);
+	struct lock *b = pqueue_entry(b_raw, struct lock, priority.elem);
+	return a->priority.priority > b->priority.priority;
+}
+
+/* Updates the calculated priority of the thread based on the donors and the
+ * base priority
+ */
+void donation_thread_update_donee(struct thread *thread)
+{
+	int8_t new_priority;
+	if (pqueue_size(&thread->priority.donors)) {
+		new_priority = pqueue_entry(pqueue_top(&thread->priority.donors),
+																struct lock, priority.elem)
+													 ->priority.priority;
+		if (thread->priority.base_priority > new_priority)
+			new_priority = thread->priority.base_priority;
+	} else {
+		new_priority = thread->priority.base_priority;
+	}
+
+	tqueue_priority_update(thread, new_priority);
+}
+
+/* Updates the calculated priority of the lock based on the donors */
+void donation_lock_update_donee(struct lock *lock)
+{
+	if (list_empty(&lock->priority.donors)) {
+		lock->priority.priority = PRI_MIN;
+	} else {
+		lock->priority.priority = list_entry(list_front(&lock->priority.donors),
+																				 struct thread, priority.elem)
+																			->priority.priority;
+	}
+}
+
+/* Updates the value of the donation given to donors of THREAD */
+void donation_thread_update_donor(struct thread *thread)
+{
+	list_remove(&thread->priority.elem);
+	list_insert_ordered(&thread->priority.donee->priority.donors,
+											&thread->priority.elem, donation_thread_less_func, NULL);
+}
+
+/* Updates the value of the donation given to donors of LOCK */
+void donation_lock_update_donor(struct lock *lock)
+{
+	pqueue_update(&lock->priority.donee->priority.donors, &lock->priority.elem);
 }
 
 /* Initializes the advanced scheduling calculator */
 void mlfqs_init(void)
 {
-/* Sets the base priority of the thread. Can only be called on a thread that is
- * not blocked by anything.
- */
 	load_average = int_to_fixed(0);
 }
 

@@ -17,6 +17,8 @@ inline bool heap_push(struct heap *heap, struct pqueue_elem *elem,
 inline struct pqueue_elem *heap_top(struct heap *heap);
 inline struct pqueue_elem *heap_pop(struct heap *heap, pqueue_less_func *less,
 																		void *aux);
+inline void heap_update(struct heap *heap, struct pqueue_elem *elem,
+												pqueue_less_func *less, void *aux);
 inline void heap_remove(struct heap *heap, struct pqueue_elem *elem,
 												pqueue_less_func *less, void *aux);
 
@@ -127,6 +129,19 @@ struct pqueue_elem *pqueue_pop(struct pqueue *pq)
 													 heap_pop(&pq->heap, pq->less, pq->aux);
 }
 
+/* Updates the spot in the priority queue where the ELEM is without
+ * removing it, assuming it was changed
+ */
+void pqueue_update(struct pqueue *pq, struct pqueue_elem *elem)
+{
+	if (pq->is_fallback) {
+		list_remove(&elem->elem);
+		list_insert_ordered(&pq->list, &elem->elem, pqueue_list_less, pq);
+	} else {
+		heap_update(&pq->heap, elem, pq->less, pq->aux);
+	}
+}
+
 /* Removes the given element from inside the priority queue */
 void pqueue_remove(struct pqueue *pq, struct pqueue_elem *elem)
 {
@@ -183,6 +198,19 @@ struct pqueue_elem *heap_pop(struct heap *heap, pqueue_less_func *less,
 	return out;
 }
 
+/* Updates the position of ELEM in the heap without removing it */
+void heap_update(struct heap *heap, struct pqueue_elem *elem,
+								 pqueue_less_func *less, void *aux)
+{
+	ASSERT(elem->heap_index);
+	ASSERT(elem->heap_index <= heap->size);
+	if (elem->heap_index > 1 &&
+			less(heap->data[elem->heap_index], heap->data[elem->heap_index / 2], aux))
+		heap_sift_up(heap, elem->heap_index, less, aux);
+	else
+		heap_sift_down(heap, elem->heap_index, less, aux);
+}
+
 /* Removes the given item from the heap */
 void heap_remove(struct heap *heap, struct pqueue_elem *elem,
 								 pqueue_less_func *less, void *aux)
@@ -196,10 +224,7 @@ void heap_remove(struct heap *heap, struct pqueue_elem *elem,
 		return;
 	heap->data[index] = heap->data[heap->size + 1];
 	heap->data[index]->heap_index = index;
-	if (index > 1 && less(heap->data[index], heap->data[index / 2], aux))
-		heap_sift_up(heap, index, less, aux);
-	else
-		heap_sift_down(heap, index, less, aux);
+	heap_update(heap, heap->data[index], less, aux);
 }
 
 /* Destroys the underlying storage of the heap */
