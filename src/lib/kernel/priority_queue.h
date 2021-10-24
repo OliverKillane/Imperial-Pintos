@@ -85,6 +85,7 @@ size_t pqueue_size(struct pqueue *pq);
 void pqueue_push(struct pqueue *pq, struct pqueue_elem *elem);
 struct pqueue_elem *pqueue_top(struct pqueue *pq);
 struct pqueue_elem *pqueue_pop(struct pqueue *pq);
+void pqueue_update(struct pqueue *pq, struct pqueue_elem *elem);
 void pqueue_remove(struct pqueue *pq, struct pqueue_elem *elem);
 
 /* Definition of pqueue_elem_init, as it is pretty lightweight. Since it is
