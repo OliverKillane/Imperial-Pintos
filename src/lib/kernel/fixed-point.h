@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 
-#define BINARY_POINT 0x2000
+#define BINARY_POINT (1 << 14)
 
 typedef struct fixed32 {
 	int32_t val;
@@ -43,7 +43,7 @@ inline fixed32 add(fixed32 x, fixed32 y)
 
 inline fixed32 add_f_i(fixed32 x, int32_t n)
 {
-	return (fixed32){ .val = x.val + (n * BINARY_POINT) };
+	return add(x, int_to_fixed(n));
 }
 
 inline fixed32 sub(fixed32 x, fixed32 y)
@@ -53,12 +53,12 @@ inline fixed32 sub(fixed32 x, fixed32 y)
 
 inline fixed32 sub_f_i(fixed32 x, int32_t n)
 {
-	return (fixed32){ .val = x.val - (n * BINARY_POINT) };
+	return sub(x, int_to_fixed(n));
 }
 
 inline fixed32 sub_i_f(int32_t n, fixed32 x)
 {
-	return (fixed32){ .val = (n * BINARY_POINT) - x.val };
+	return sub(int_to_fixed(n), x);
 }
 
 inline fixed32 mult(fixed32 x, fixed32 y)
@@ -68,7 +68,7 @@ inline fixed32 mult(fixed32 x, fixed32 y)
 
 inline fixed32 mult_f_i(fixed32 x, int32_t n)
 {
-	return (fixed32){ .val = x.val * n };
+	return mult(x, int_to_fixed(n));
 }
 
 inline fixed32 div(fixed32 x, fixed32 y)
@@ -78,7 +78,7 @@ inline fixed32 div(fixed32 x, fixed32 y)
 
 inline fixed32 div_f_i(fixed32 x, int32_t n)
 {
-	return (fixed32){ .val = x.val / n };
+	return div(x, int_to_fixed(n));
 }
 
 inline fixed32 div_i_f(int32_t n, fixed32 x)

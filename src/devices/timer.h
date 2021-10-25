@@ -17,7 +17,7 @@ int64_t timer_ticks(void);
 int64_t timer_elapsed(int64_t then);
 
 /* Timer structure to handle the timer_sleep calls */
-struct timer_entry {
+struct sleep_entry {
 	struct pqueue_elem elem;
 	struct semaphore thread_sema;
 	int64_t end;
