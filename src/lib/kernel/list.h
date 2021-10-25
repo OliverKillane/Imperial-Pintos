@@ -133,10 +133,6 @@ struct list_elem *list_begin(struct list *list);
 struct list_elem *list_next(struct list_elem *elem);
 struct list_elem *list_end(struct list *list);
 
-#define LIST_ITER(list, elem)                                                  \
-	for (struct list_elem *elem = list_begin(list); elem != list_end(list);      \
-			 elem = list_next(elem))
-
 struct list_elem *list_rbegin(struct list *list);
 struct list_elem *list_prev(struct list_elem *elem);
 struct list_elem *list_rend(struct list *list);
@@ -160,9 +156,13 @@ struct list_elem *list_pop_back(struct list *list);
 struct list_elem *list_front(struct list *list);
 struct list_elem *list_back(struct list *list);
 
+/* List from elem */
+struct list *get_list(struct list_elem *elem);
+
 /* List properties. */
 size_t list_size(struct list *list);
 bool list_empty(struct list *list);
+bool list_elem_alone(struct list_elem *elem);
 
 /* Miscellaneous. */
 void list_reverse(struct list *list);

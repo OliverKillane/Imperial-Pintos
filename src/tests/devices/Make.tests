@@ -1,9 +1,9 @@
 # -*- makefile -*-
 
 # Test names.
-tests/devices_TESTS = $(addprefix tests/devices/,alarm-single		\
-alarm-multiple alarm-simultaneous alarm-no-busy-wait alarm-one          \
-alarm-zero alarm-negative)
+tests/devices_TESTS = $(addprefix tests/devices/, priority-queue alarm-single \
+alarm-multiple alarm-simultaneous alarm-no-busy-wait alarm-one alarm-zero \
+alarm-negative)
 
 # Sources for tests.
 tests/devices_SRC  = tests/devices/tests.c
@@ -13,6 +13,7 @@ tests/devices_SRC += tests/devices/alarm-no-busy-wait.c
 tests/devices_SRC += tests/devices/alarm-one.c
 tests/devices_SRC += tests/devices/alarm-zero.c
 tests/devices_SRC += tests/devices/alarm-negative.c
+tests/devices_SRC += tests/devices/priority-queue.c
 
 
 

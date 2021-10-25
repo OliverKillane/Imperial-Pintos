@@ -26,6 +26,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31 /* Default priority. */
 #define PRI_MAX 63 /* Highest priority. */
 
+#define NICE_MIN -20 /* Lowest niceness. */
+#define NICE_DEFAULT 0 /* Default niceness. */
+#define NICE_MAX 20 /* Highest niceness. */
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -91,8 +94,21 @@ struct thread {
 	enum thread_status status; /* Thread state. */
 	char name[16]; /* Name (for debugging purposes). */
 	uint8_t *stack; /* Saved stack pointer. */
-	struct thread_priority priority; /* The data for the priority calculator */
-	struct semaphore priority_guard; /* Guard for the priority struct */
+	int8_t priority; /* Thread's current computed priority */
+	union {
+		struct {
+			int8_t nice; /* Niceness ranges from 20 to -20 */
+			fixed32 recent_cpu; /* Measure of cpu usage */
+		};
+		struct {
+			/* Owned by priority.c */
+			int8_t base_priority; /* Thread's base priority */
+			struct lock *donee; /* The lock that receives the thread's priority */
+			struct list_elem donorelem; /* Used in donee's list of donors */
+			struct pqueue donors; /* Locks donating their priority to the thread */
+			struct semaphore priority_guard; /* Guard for the priority struct */
+		};
+	};
 	struct list_elem allelem; /* List element for all threads list. */
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. */
@@ -105,6 +121,20 @@ struct thread {
 	/* Owned by thread.c. */
 	unsigned magic; /* Detects stack overflow. */
 };
+
+/* A round robin queue (using a list) that can itself be added to a list
+ * NOTE: tqueue_remove relies on the thread_queue being the first member.
+ */
+struct ready_queue {
+	struct list thread_queue; /* Holds a queue of threads of the same priority */
+	struct list_elem elem; /* Used to link the ready_queues together */
+};
+
+/* If false (default), use round-robin scheduler.
+ * If true, use multi-level feedback queue scheduler.
+ * Controlled by kernel command-line option "mlfqs".
+ */
+extern bool thread_mlfqs;
 
 void thread_init(void);
 void thread_start(void);
@@ -138,5 +168,8 @@ int thread_get_nice(void);
 void thread_set_nice(int nice);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+bool priority_cmp(const struct list_elem *a, const struct list_elem *b,
+									void *aux UNUSED);
+void ready_queue_update(struct thread *thread);
 
 #endif /* threads/thread.h */

@@ -19,9 +19,15 @@ void sema_self_test(void);
 
 /* Lock. */
 struct lock {
+	/* Owned by synch.c */
 	struct thread *holder; /* Thread holding lock (for debugging). */
 	struct semaphore semaphore; /* Binary semaphore controlling access. */
-	struct lock_priority priority; /* Donation given to the holder */
+
+	/* Owned by priority.c */
+	int8_t priority; /* Lock's current computed priority */
+	struct thread *donee; /* The thread that receives the lock's priority */
+	struct pqueue_elem donorelem; /* Used in donee's pqueue of donors */
+	struct list donors; /* Threads donating their priority to the lock */
 	struct semaphore priority_guard; /* Guard for the priority struct */
 };
 

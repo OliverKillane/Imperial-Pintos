@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #define NUM_REPEAT 100
-#define NUM_ITEMS 200
+#define NUM_ITEMS 100
 
 _Static_assert(NUM_ITEMS % 2 == 0, "NUM_ITEMS must be even");
 

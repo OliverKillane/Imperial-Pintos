@@ -26,7 +26,7 @@ static int64_t ticks;
 static unsigned loops_per_tick;
 
 /* A priority queue to hold the sleeping threads */
-static struct pqueue timer_entries;
+static struct pqueue sleep_list;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops(unsigned loops);
@@ -37,8 +37,8 @@ static void real_time_delay(int64_t num, int32_t denom);
 static bool timer_entry_less(const struct pqueue_elem *a_raw,
 														 const struct pqueue_elem *b_raw, void *aux UNUSED)
 {
-	const struct timer_entry *a = pqueue_entry(a_raw, struct timer_entry, elem);
-	const struct timer_entry *b = pqueue_entry(b_raw, struct timer_entry, elem);
+	const struct sleep_entry *a = pqueue_entry(a_raw, struct sleep_entry, elem);
+	const struct sleep_entry *b = pqueue_entry(b_raw, struct sleep_entry, elem);
 
 	return a->end < b->end;
 }
@@ -50,7 +50,7 @@ void timer_init(void)
 {
 	pit_configure_channel(0, 2, TIMER_FREQ);
 	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
-	pqueue_init(&timer_entries, timer_entry_less, NULL);
+	pqueue_init(&sleep_list, timer_entry_less, NULL);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -84,9 +84,7 @@ int64_t timer_ticks(void)
 {
 	enum intr_level old_level = intr_disable();
 	int64_t t = ticks;
-
 	intr_set_level(old_level);
-
 	return t;
 }
 
@@ -103,22 +101,19 @@ int64_t timer_elapsed(int64_t then)
  */
 void timer_sleep(int64_t wait_ticks)
 {
-	enum intr_level old;
-
 	if (wait_ticks <= 0)
 		return;
-
-	struct timer_entry curr;
-
-	pqueue_elem_init(&curr.elem);
-	curr.end = ticks + wait_ticks;
-	sema_init(&curr.thread_sema, 0);
-
 	ASSERT(!intr_context());
 
+	struct sleep_entry curr;
+	pqueue_elem_init(&curr.elem);
+	sema_init(&curr.thread_sema, 0);
+	curr.end = ticks + wait_ticks;
+
+	enum intr_level old;
 	old = intr_disable();
 
-	pqueue_push(&timer_entries, &curr.elem);
+	pqueue_push(&sleep_list, &curr.elem);
 	if (curr.end > ticks)
 		sema_down(&curr.thread_sema);
 
@@ -198,11 +193,11 @@ void timer_print_stats(void)
 static void timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
-	while (pqueue_size(&timer_entries) &&
-				 ticks >= pqueue_entry(pqueue_top(&timer_entries), struct timer_entry,
-															 elem)
-													->end) {
-		sema_up(&pqueue_entry(pqueue_pop(&timer_entries), struct timer_entry, elem)
+	while (pqueue_size(&sleep_list) &&
+				 ticks >=
+								 pqueue_entry(pqueue_top(&sleep_list), struct sleep_entry, elem)
+												 ->end) {
+		sema_up(&pqueue_entry(pqueue_pop(&sleep_list), struct sleep_entry, elem)
 										 ->thread_sema);
 	}
 	thread_tick();

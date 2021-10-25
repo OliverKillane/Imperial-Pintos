@@ -112,10 +112,15 @@ void sema_up(struct semaphore *sema)
 	ASSERT(sema);
 
 	old_level = intr_disable();
-	if (!list_empty(&sema->waiters))
-		thread_unblock(
-						list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+
 	sema->value++;
+
+	if (!list_empty(&sema->waiters)) {
+		struct thread *max_waiter = list_entry(
+						list_max(&sema->waiters, priority_cmp, NULL), struct thread, elem);
+		list_remove(&max_waiter->elem);
+		thread_unblock(max_waiter);
+	}
 	intr_set_level(old_level);
 }
 
@@ -188,7 +193,6 @@ void lock_init(struct lock *lock)
  */
 void lock_acquire(struct lock *lock)
 {
-	// TODO: inform the priority calculator about the priority donation
 	ASSERT(lock);
 	ASSERT(!intr_context());
 	ASSERT(!lock_held_by_current_thread(lock));
@@ -225,7 +229,6 @@ bool lock_try_acquire(struct lock *lock)
  */
 void lock_release(struct lock *lock)
 {
-	// TODO: remove priority donation from the calculator
 	ASSERT(lock);
 	ASSERT(lock_held_by_current_thread(lock));
 
