@@ -36,7 +36,7 @@ unit-test-job:   # This job runs in the test stage.
   script:
     - echo "Testing"
     - if [[ $(make -C src/devices check -j$(($(nproc --all)-1 ))) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
-    # - if [[ $(make -C src/threads check -j$(($(nproc --all)-1 )) -WError -Wno-unused-parameter -Wno-unused-function) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
+    - if [[ $(make -C src/threads check -j$(($(nproc --all)-1 ))) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
   only:
     - merge_requests
 
