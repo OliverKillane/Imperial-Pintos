@@ -34,14 +34,6 @@
 struct lock;
 struct thread;
 
-/* Flag for whether the donation system has been turned on - used for avoiding
- * a circular dependency with malloc, initialization of donation system for the
- * main thread and several functions using locks. Requires that all the locks
- * acquired by the main thread before setting it to true must be released before
- * it gets set to true.
- */
-extern bool donation_initialised;
-
 /* Maximum depth to which the donation is updated */
 #define DONATION_MAX_DEPTH 16
 _Static_assert(DONATION_MAX_DEPTH, "DONATION_MAX_DEPTH must be positive");
@@ -49,7 +41,6 @@ _Static_assert(DONATION_MAX_DEPTH, "DONATION_MAX_DEPTH must be positive");
 /* Priority donation system */
 void donation_thread_init(struct thread *thread, int8_t base_priority);
 void donation_lock_init(struct lock *lock);
-void donation_thread_destroy(struct thread *thread);
 
 void donation_thread_block(struct thread *thread, struct lock *lock);
 void donation_thread_unblock(struct thread *thread);

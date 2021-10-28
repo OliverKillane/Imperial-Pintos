@@ -200,13 +200,13 @@ void lock_acquire(struct lock *lock)
 	ASSERT(!intr_context());
 	ASSERT(!lock_held_by_current_thread(lock));
 
-	if (donation_initialised)
+	if (!thread_mlfqs)
 		donation_thread_block(thread_current(), lock);
 	sema_down(&lock->semaphore);
-	if (donation_initialised)
+	if (!thread_mlfqs)
 		donation_thread_unblock(thread_current());
 	lock->holder = thread_current();
-	if (donation_initialised)
+	if (!thread_mlfqs)
 		donation_thread_acquire(lock->holder, lock);
 }
 
@@ -227,7 +227,7 @@ bool lock_try_acquire(struct lock *lock)
 	success = sema_try_down(&lock->semaphore);
 	if (success) {
 		lock->holder = thread_current();
-		if (donation_initialised)
+		if (!thread_mlfqs)
 			donation_thread_acquire(lock->holder, lock);
 	}
 	return success;
@@ -244,7 +244,7 @@ void lock_release(struct lock *lock)
 	ASSERT(lock);
 	ASSERT(lock_held_by_current_thread(lock));
 
-	if (donation_initialised)
+	if (!thread_mlfqs)
 		donation_thread_release(lock);
 	lock->holder = NULL;
 	sema_up(&lock->semaphore);

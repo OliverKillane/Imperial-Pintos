@@ -136,7 +136,7 @@ void thread_init(void)
 		load_average = int_to_fixed(0);
 		init_thread_mlfqs(initial_thread, "main", NICE_DEFAULT, int_to_fixed(0));
 	} else {
-		init_thread(initial_thread, "main");
+		init_thread_donation(initial_thread, "main", PRI_DEFAULT);
 	}
 
 	initial_thread->status = THREAD_RUNNING;
@@ -148,14 +148,6 @@ void thread_init(void)
  */
 void thread_start(void)
 {
-	/* We have to delay the initialization of the donation in the initial thread
-	 * because it requires malloc to work.
-	 */
-	if (!thread_mlfqs) {
-		donation_thread_init(initial_thread, PRI_DEFAULT);
-		donation_initialised = true;
-	}
-
 	/* Create the idle thread. */
 	struct semaphore idle_started;
 	sema_init(&idle_started, 0);
