@@ -26,7 +26,7 @@ struct lock {
 	/* Owned by donation.c */
 	int8_t priority; /* Lock's current computed priority */
 	struct thread *donee; /* The thread that receives the lock's priority */
-	struct pqueue_elem donorelem; /* Used in donee's pqueue of donors */
+	struct list_elem donorelem; /* Used in donee's pqueue of donors */
 	struct list donors; /* Threads donating their priority to the lock */
 	struct semaphore priority_guard; /* Guard for the priority struct */
 };

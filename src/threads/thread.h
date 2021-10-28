@@ -105,7 +105,7 @@ struct thread {
 			int8_t base_priority; /* Thread's base priority */
 			struct lock *donee; /* The lock that receives the thread's priority */
 			struct list_elem donorelem; /* Used in donee's list of donors */
-			struct pqueue donors; /* Locks donating their priority to the thread */
+			struct list donors; /* Locks donating their priority to the thread */
 			struct semaphore priority_guard; /* Guard for the priority struct */
 		};
 	};

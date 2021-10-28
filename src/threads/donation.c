@@ -6,12 +6,9 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 
-/* Donation system intialization flag (false by default) */
-bool donation_initialised;
-
 /* General helper functions for the priority donation system */
 static list_less_func donation_thread_less_func;
-static pqueue_less_func donation_lock_less_func;
+static list_less_func donation_lock_less_func;
 static inline void donation_cascading_update(struct thread *thread,
 																						 struct lock *lock,
 																						 bool is_curr_thread);
@@ -29,7 +26,7 @@ void donation_thread_init(struct thread *thread, int8_t base_priority)
 	thread->priority = thread->base_priority = base_priority;
 	sema_init(&thread->priority_guard, 1);
 	thread->donee = NULL;
-	pqueue_init(&thread->donors, donation_lock_less_func, NULL);
+	list_init(&thread->donors);
 }
 
 /* Initializes the values in struct lock_priority inside the lock that
@@ -41,15 +38,7 @@ void donation_lock_init(struct lock *lock)
 	sema_init(&lock->priority_guard, 1);
 	lock->priority = PRI_MIN;
 	lock->donee = NULL;
-	pqueue_elem_init(&lock->donorelem);
 	list_init(&lock->donors);
-}
-
-/* Frees the resources of the thread that are related to priority donation */
-void donation_thread_destroy(struct thread *thread)
-{
-	ASSERT(intr_get_level() == INTR_OFF);
-	pqueue_destroy(&thread->donors);
 }
 
 /* Signifies that the thread is now being blocked by a lock. The thread
@@ -101,7 +90,8 @@ void donation_thread_acquire(struct thread *thread, struct lock *lock)
 	sema_down(&thread->priority_guard);
 	ASSERT(!lock->donee);
 	lock->donee = thread;
-	pqueue_push(&lock->donee->donors, &lock->donorelem);
+	list_insert_ordered(&lock->donee->donors, &lock->donorelem,
+											donation_lock_less_func, NULL);
 	donation_cascading_update(NULL, lock, false);
 }
 
@@ -119,7 +109,7 @@ void donation_thread_release(struct lock *lock)
 	sema_down(&thread->priority_guard);
 	ASSERT(!lock->donee->donee);
 
-	pqueue_remove(&thread->donors, &lock->donorelem);
+	list_remove(&lock->donorelem);
 	lock->donee = NULL;
 	donation_thread_update_donee(thread);
 
@@ -200,11 +190,11 @@ bool donation_thread_less_func(const struct list_elem *a,
 }
 
 /* Comparison function for the donor locks stored in the donee thread */
-bool donation_lock_less_func(const struct pqueue_elem *a,
-														 const struct pqueue_elem *b, void *aux UNUSED)
+bool donation_lock_less_func(const struct list_elem *a,
+														 const struct list_elem *b, void *aux UNUSED)
 {
-	return pqueue_entry(a, struct lock, donorelem)->priority >
-				 pqueue_entry(b, struct lock, donorelem)->priority;
+	return list_entry(a, struct lock, donorelem)->priority >
+				 list_entry(b, struct lock, donorelem)->priority;
 }
 
 /* Updates the calculated priority of the thread based on the donors and the
@@ -213,9 +203,10 @@ bool donation_lock_less_func(const struct pqueue_elem *a,
 inline void donation_thread_update_donee(struct thread *thread)
 {
 	int8_t new_priority;
-	if (pqueue_size(&thread->donors)) {
+	if (!list_empty(&thread->donors)) {
 		new_priority =
-						pqueue_entry(pqueue_top(&thread->donors), struct lock, donorelem)
+						list_entry(list_front(&thread->donors),
+											 struct lock, donorelem)
 										->priority;
 		if (thread->base_priority > new_priority)
 			new_priority = thread->base_priority;
@@ -249,5 +240,7 @@ inline void donation_thread_update_donor(struct thread *thread)
 /* Updates the value of the donation given to donors of LOCK */
 inline void donation_lock_update_donor(struct lock *lock)
 {
-	pqueue_update(&lock->donee->donors, &lock->donorelem);
+	list_remove(&lock->donorelem);
+	list_insert_ordered(&lock->donee->donors, &lock->donorelem,
+											donation_lock_less_func, NULL);
 }
