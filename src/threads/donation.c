@@ -12,10 +12,10 @@ static list_less_func donation_lock_less_func;
 static inline void donation_cascading_update(struct thread *thread,
 																						 struct lock *lock,
 																						 bool is_curr_thread);
-static inline void donation_thread_update_donee(struct thread *thread);
-static inline void donation_lock_update_donee(struct lock *lock);
-static inline void donation_thread_update_donor(struct thread *thread);
-static inline void donation_lock_update_donor(struct lock *lock);
+static inline void donation_thread_update_priority(struct thread *thread);
+static inline void donation_lock_update_priority(struct lock *lock);
+static inline void donation_thread_update_donation(struct thread *thread);
+static inline void donation_lock_update_donation(struct lock *lock);
 
 /* Initializes the values in struct thread_priority inside the thread that
  * correspond to the donation system, as well as the semaphore-based guard for
@@ -24,7 +24,7 @@ static inline void donation_lock_update_donor(struct lock *lock);
 void donation_thread_init(struct thread *thread, int8_t base_priority)
 {
 	thread->priority = thread->base_priority = base_priority;
-	sema_init(&thread->priority_guard, 1);
+	sema_init(&thread->donors_guard, 1);
 	thread->donee = NULL;
 	list_init(&thread->donors);
 }
@@ -35,7 +35,7 @@ void donation_thread_init(struct thread *thread, int8_t base_priority)
  */
 void donation_lock_init(struct lock *lock)
 {
-	sema_init(&lock->priority_guard, 1);
+	sema_init(&lock->donors_guard, 1);
 	lock->priority = PRI_MIN;
 	lock->donee = NULL;
 	list_init(&lock->donors);
@@ -47,37 +47,38 @@ void donation_lock_init(struct lock *lock)
  */
 void donation_thread_block(struct thread *thread, struct lock *lock)
 {
-	sema_down(&thread->priority_guard);
-	sema_down(&lock->priority_guard);
-
 	ASSERT(!thread->donee);
 	thread->donee = lock;
+
+	sema_down(&thread->donors_guard);
+	sema_down(&lock->donors_guard);
+
+	donation_thread_update_priority(thread);
+	sema_up(&thread->donors_guard);
+
 	list_insert_ordered(&lock->donors, &thread->donorelem,
 											donation_thread_less_func, NULL);
-	donation_cascading_update(thread, NULL, true);
+	donation_cascading_update(NULL, lock, false);
 }
 
 /* Signifies that the thread is no longer being blocked by the thread it was
  * marked as blocked by. The thread must be blocked by another lock already.
  * The lock the thread was blocked by must not be acquired by any thread.
- * The function blocks the access to the data of both thread and the lock that
- * it has been blocked by.
+ * The function blocks the access to the data about the thread's donee's donors.
  */
 void donation_thread_unblock(struct thread *thread)
 {
-	sema_down(&thread->priority_guard);
 	ASSERT(thread->donee);
-
 	struct lock *lock = thread->donee;
-	sema_down(&lock->priority_guard);
 	ASSERT(!lock->donee);
+	thread->donee = NULL;
+
+	sema_down(&lock->donors_guard);
 
 	list_remove(&thread->donorelem);
-	thread->donee = NULL;
-	donation_lock_update_donee(lock);
+	donation_lock_update_priority(lock);
 
-	sema_up(&thread->priority_guard);
-	sema_up(&lock->priority_guard);
+	sema_up(&lock->donors_guard);
 }
 
 /* Signifies that the thread has successfully acquired the lock. The lock cannot
@@ -86,52 +87,55 @@ void donation_thread_unblock(struct thread *thread)
  */
 void donation_thread_acquire(struct thread *thread, struct lock *lock)
 {
-	sema_down(&lock->priority_guard);
-	sema_down(&thread->priority_guard);
 	ASSERT(!lock->donee);
 	lock->donee = thread;
-	list_insert_ordered(&lock->donee->donors, &lock->donorelem,
+
+	sema_down(&lock->donors_guard);
+	sema_down(&thread->donors_guard);
+
+	donation_lock_update_priority(lock);
+	sema_up(&lock->donors_guard);
+
+	list_insert_ordered(&thread->donors, &lock->donorelem,
 											donation_lock_less_func, NULL);
-	donation_cascading_update(NULL, lock, false);
+	donation_cascading_update(thread, NULL, true);
 }
 
 /* Signifies that the thread holding the lock has released it. The thread
  * holding the lock cannot be blocked by any other lock. The lock must be
- * already held by some thread. The function blocks the access to the
- * data of both lock and the thread that was acquiring it.
+ * already held by some thread. The function blocks the access to the data
+ * about the lock's donee's donors.
  */
 void donation_thread_release(struct lock *lock)
 {
-	sema_down(&lock->priority_guard);
 	ASSERT(lock->donee);
-
 	struct thread *thread = lock->donee;
-	sema_down(&thread->priority_guard);
-	ASSERT(!lock->donee->donee);
+	ASSERT(!thread->donee);
+	lock->donee = NULL;
+
+	sema_down(&thread->donors_guard);
 
 	list_remove(&lock->donorelem);
-	lock->donee = NULL;
-	donation_thread_update_donee(thread);
+	donation_thread_update_priority(thread);
 
-	sema_up(&lock->priority_guard);
-	sema_up(&thread->priority_guard);
+	sema_up(&thread->donors_guard);
 }
 
 /* Sets the base priority of the thread. The thread must not be
  * blocked by any other thread. New base priority must be
- * between PRI_MIN and PRI_MAX. The function blocks access to thread's priority
+ * between PRI_MIN and PRI_MAX. The function blocks access to thread's donors
  * data.
  */
 void donation_set_base_priority(struct thread *thread, int base_priority)
 {
-	sema_up(&thread->priority_guard);
 	ASSERT(!thread->donee);
 	ASSERT(base_priority >= PRI_MIN && base_priority <= PRI_MAX);
+	sema_down(&thread->donors_guard);
 
 	thread->base_priority = base_priority;
-	donation_thread_update_donee(thread);
+	donation_thread_update_priority(thread);
 
-	sema_down(&thread->priority_guard);
+	sema_up(&thread->donors_guard);
 }
 
 /* Returns the base priority of the thread */
@@ -146,8 +150,8 @@ int donation_get_base_priority(const struct thread *thread)
  * given in the LOCK argument.
  *
  * In terms of synchronization, it uses hand-over-hand locking to traverse to
- * the subsequent donees. It assumes that the initial donor and its donee
- * already have their guards acquired.
+ * the subsequent donees. It assumes that the initial donee has its guard
+ * acquired.
  */
 inline void donation_cascading_update(struct thread *thread, struct lock *lock,
 																			bool is_curr_thread)
@@ -158,26 +162,26 @@ inline void donation_cascading_update(struct thread *thread, struct lock *lock,
 			 depth++, is_curr_thread ^= true) {
 		if (is_curr_thread) {
 			lock = thread->donee;
-			if (depth)
-				sema_down(&lock->priority_guard);
-			donation_thread_update_donor(thread);
-			donation_lock_update_donee(lock);
-			sema_up(&thread->priority_guard);
+			sema_down(&lock->donors_guard);
+			donation_thread_update_priority(thread);
+			sema_up(&thread->donors_guard);
+			donation_thread_update_donation(thread);
 		} else {
 			thread = lock->donee;
-			if (depth)
-				sema_down(&thread->priority_guard);
-			donation_lock_update_donor(lock);
-			donation_thread_update_donee(thread);
-			sema_up(&lock->priority_guard);
+			sema_down(&thread->donors_guard);
+			donation_lock_update_priority(lock);
+			sema_up(&lock->donors_guard);
+			donation_lock_update_donation(lock);
 		}
 	}
 	if (is_curr_thread) {
-		sema_up(&thread->priority_guard);
 		if (!thread->donee)
-			ready_queue_update(thread);
+			donation_thread_update_priority(thread);
+		sema_up(&thread->donors_guard);
 	} else {
-		sema_up(&lock->priority_guard);
+		if (!lock->donee)
+			donation_lock_update_priority(lock);
+		sema_up(&lock->donors_guard);
 	}
 }
 
@@ -200,25 +204,24 @@ bool donation_lock_less_func(const struct list_elem *a,
 /* Updates the calculated priority of the thread based on the donors and the
  * base priority
  */
-inline void donation_thread_update_donee(struct thread *thread)
+inline void donation_thread_update_priority(struct thread *thread)
 {
 	int8_t new_priority;
-	if (!list_empty(&thread->donors)) {
+	if (list_empty(&thread->donors)) {
+		new_priority = thread->base_priority;
+	} else {
 		new_priority =
-						list_entry(list_front(&thread->donors),
-											 struct lock, donorelem)
+						list_entry(list_front(&thread->donors), struct lock, donorelem)
 										->priority;
 		if (thread->base_priority > new_priority)
 			new_priority = thread->base_priority;
-	} else {
-		new_priority = thread->base_priority;
 	}
 
 	thread->priority = new_priority;
 }
 
 /* Updates the calculated priority of the lock based on the donors */
-inline void donation_lock_update_donee(struct lock *lock)
+inline void donation_lock_update_priority(struct lock *lock)
 {
 	if (list_empty(&lock->donors)) {
 		lock->priority = PRI_MIN;
@@ -230,7 +233,7 @@ inline void donation_lock_update_donee(struct lock *lock)
 }
 
 /* Updates the value of the donation given to donors of THREAD */
-inline void donation_thread_update_donor(struct thread *thread)
+inline void donation_thread_update_donation(struct thread *thread)
 {
 	list_remove(&thread->donorelem);
 	list_insert_ordered(&thread->donee->donors, &thread->donorelem,
@@ -238,7 +241,7 @@ inline void donation_thread_update_donor(struct thread *thread)
 }
 
 /* Updates the value of the donation given to donors of LOCK */
-inline void donation_lock_update_donor(struct lock *lock)
+inline void donation_lock_update_donation(struct lock *lock)
 {
 	list_remove(&lock->donorelem);
 	list_insert_ordered(&lock->donee->donors, &lock->donorelem,

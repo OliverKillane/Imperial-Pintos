@@ -28,7 +28,7 @@ struct lock {
 	struct thread *donee; /* The thread that receives the lock's priority */
 	struct list_elem donorelem; /* Used in donee's pqueue of donors */
 	struct list donors; /* Threads donating their priority to the lock */
-	struct semaphore priority_guard; /* Guard for the priority struct */
+	struct semaphore donors_guard; /* Guard of the list of donors */
 };
 
 void lock_init(struct lock *lock);
