@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include "threads/priority.h"
+#include "threads/donation.h"
 #include "threads/synch.h"
 
 /* States in a thread's life cycle. */
@@ -101,7 +101,7 @@ struct thread {
 			fixed32 recent_cpu; /* Measure of cpu usage */
 		};
 		struct {
-			/* Owned by priority.c */
+			/* Owned by donation.c */
 			int8_t base_priority; /* Thread's base priority */
 			struct lock *donee; /* The lock that receives the thread's priority */
 			struct list_elem donorelem; /* Used in donee's list of donors */
@@ -156,6 +156,7 @@ const char *thread_name(void);
 
 void thread_exit(void) NO_RETURN;
 void thread_yield(void);
+void thread_priority_yield(void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func(struct thread *t, void *aux);
