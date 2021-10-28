@@ -1,10 +1,13 @@
-#include "threads/priority.h"
+#include "threads/donation.h"
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+
+/* Donation system intialization flag (false by default) */
+bool donation_initialised;
 
 /* General helper functions for the priority donation system */
 static list_less_func donation_thread_less_func;
@@ -147,10 +150,14 @@ int donation_get_base_priority(const struct thread *thread)
 	return thread->base_priority;
 }
 
-/* Updates the donated priority of DONATION_MAX_DEPTH threads down the line.
- * It uses hand-over-hand locking to traverse to the subsequent donees. It
- * assumes that the initial donor and its donee already have their guards
- * acquired.
+/* Updates the donated priority of DONATION_MAX_DEPTH priority nodes
+ * down the line. If IS_CURR_THREAD is true, then assumes that the node to start
+ * updating the priority from is given in the THREAD argument; otherwise, it is
+ * given in the LOCK argument.
+ *
+ * In terms of synchronization, it uses hand-over-hand locking to traverse to
+ * the subsequent donees. It assumes that the initial donor and its donee
+ * already have their guards acquired.
  */
 inline void donation_cascading_update(struct thread *thread, struct lock *lock,
 																			bool is_curr_thread)
@@ -175,28 +182,29 @@ inline void donation_cascading_update(struct thread *thread, struct lock *lock,
 			sema_up(&lock->priority_guard);
 		}
 	}
-	if (is_curr_thread)
+	if (is_curr_thread) {
 		sema_up(&thread->priority_guard);
-	else
+		if (!thread->donee)
+			ready_queue_update(thread);
+	} else {
 		sema_up(&lock->priority_guard);
+	}
 }
 
 /* Comparison function for donor threads stored in the donee lock */
-bool donation_thread_less_func(const struct list_elem *a_raw,
-															 const struct list_elem *b_raw, void *aux UNUSED)
+bool donation_thread_less_func(const struct list_elem *a,
+															 const struct list_elem *b, void *aux UNUSED)
 {
-	struct thread *a = list_entry(a_raw, struct thread, donorelem);
-	struct thread *b = list_entry(b_raw, struct thread, donorelem);
-	return a->priority > b->priority;
+	return list_entry(a, struct thread, donorelem)->priority >
+				 list_entry(b, struct thread, donorelem)->priority;
 }
 
 /* Comparison function for the donor locks stored in the donee thread */
-bool donation_lock_less_func(const struct pqueue_elem *a_raw,
-														 const struct pqueue_elem *b_raw, void *aux UNUSED)
+bool donation_lock_less_func(const struct pqueue_elem *a,
+														 const struct pqueue_elem *b, void *aux UNUSED)
 {
-	struct lock *a = pqueue_entry(a_raw, struct lock, donorelem);
-	struct lock *b = pqueue_entry(b_raw, struct lock, donorelem);
-	return a->priority > b->priority;
+	return pqueue_entry(a, struct lock, donorelem)->priority >
+				 pqueue_entry(b, struct lock, donorelem)->priority;
 }
 
 /* Updates the calculated priority of the thread based on the donors and the
@@ -216,7 +224,6 @@ inline void donation_thread_update_donee(struct thread *thread)
 	}
 
 	thread->priority = new_priority;
-	ready_queue_update(thread);
 }
 
 /* Updates the calculated priority of the lock based on the donors */

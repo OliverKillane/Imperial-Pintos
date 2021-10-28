@@ -3,7 +3,7 @@
 
 #include <list.h>
 #include <stdbool.h>
-#include "threads/priority.h"
+#include "threads/donation.h"
 
 /* A counting semaphore. */
 struct semaphore {
@@ -23,7 +23,7 @@ struct lock {
 	struct thread *holder; /* Thread holding lock (for debugging). */
 	struct semaphore semaphore; /* Binary semaphore controlling access. */
 
-	/* Owned by priority.c */
+	/* Owned by donation.c */
 	int8_t priority; /* Lock's current computed priority */
 	struct thread *donee; /* The thread that receives the lock's priority */
 	struct pqueue_elem donorelem; /* Used in donee's pqueue of donors */
