@@ -26,7 +26,7 @@ static int64_t ticks;
 static unsigned loops_per_tick;
 
 /* A priority queue to hold the sleeping threads */
-static struct pqueue sleep_list;
+static struct list sleep_list;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops(unsigned loops);
@@ -34,13 +34,11 @@ static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 static void real_time_delay(int64_t num, int32_t denom);
 
-static bool timer_entry_less(const struct pqueue_elem *a_raw,
-														 const struct pqueue_elem *b_raw, void *aux UNUSED)
+static bool timer_entry_less(const struct list_elem *a,
+														 const struct list_elem *b, void *aux UNUSED)
 {
-	const struct sleep_entry *a = pqueue_entry(a_raw, struct sleep_entry, elem);
-	const struct sleep_entry *b = pqueue_entry(b_raw, struct sleep_entry, elem);
-
-	return a->end < b->end;
+	return list_entry(a, struct sleep_entry, elem)->end <
+				 list_entry(b, struct sleep_entry, elem)->end;
 }
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
@@ -50,7 +48,7 @@ void timer_init(void)
 {
 	pit_configure_channel(0, 2, TIMER_FREQ);
 	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
-	pqueue_init(&sleep_list, timer_entry_less, NULL);
+	list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -106,14 +104,13 @@ void timer_sleep(int64_t wait_ticks)
 	ASSERT(!intr_context());
 
 	struct sleep_entry curr;
-	pqueue_elem_init(&curr.elem);
 	sema_init(&curr.thread_sema, 0);
 	curr.end = ticks + wait_ticks;
 
 	enum intr_level old;
 	old = intr_disable();
 
-	pqueue_push(&sleep_list, &curr.elem);
+	list_insert_ordered(&sleep_list, &curr.elem, timer_entry_less, NULL);
 	if (curr.end > ticks)
 		sema_down(&curr.thread_sema);
 
@@ -193,11 +190,10 @@ void timer_print_stats(void)
 static void timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
-	while (pqueue_size(&sleep_list) &&
-				 ticks >=
-								 pqueue_entry(pqueue_top(&sleep_list), struct sleep_entry, elem)
-												 ->end) {
-		sema_up(&pqueue_entry(pqueue_pop(&sleep_list), struct sleep_entry, elem)
+	while (!list_empty(&sleep_list) &&
+				 ticks >= list_entry(list_front(&sleep_list), struct sleep_entry, elem)
+													->end) {
+		sema_up(&list_entry(list_pop_front(&sleep_list), struct sleep_entry, elem)
 										 ->thread_sema);
 	}
 	thread_tick();

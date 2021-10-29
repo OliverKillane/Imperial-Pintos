@@ -106,7 +106,7 @@ struct thread {
 			struct lock *donee; /* The lock that receives the thread's priority */
 			struct list_elem donorelem; /* Used in donee's list of donors */
 			struct list donors; /* Locks donating their priority to the thread */
-			struct semaphore donors_guard; /* Guard of the list of donors */
+			struct semaphore donation_guard; /* Guard of the donation system */
 		};
 	};
 	struct list_elem allelem; /* List element for all threads list. */
