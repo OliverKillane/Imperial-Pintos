@@ -35,7 +35,7 @@ struct lock;
 struct thread;
 
 /* Maximum depth to which the donation is updated */
-#define DONATION_MAX_DEPTH 16
+#define DONATION_MAX_DEPTH 8
 _Static_assert(DONATION_MAX_DEPTH, "DONATION_MAX_DEPTH must be positive");
 
 /* Priority donation system */
