@@ -269,7 +269,7 @@ struct semaphore_elem {
 };
 
 /* Compares the semaphore_elem entries in a waiting list of a condition in order
- * to find the thread with the biggest priority
+ * to find the thread with the biggest priority.
  */
 static bool cond_cmp(const struct list_elem *a, const struct list_elem *b,
 										 void *aux UNUSED)

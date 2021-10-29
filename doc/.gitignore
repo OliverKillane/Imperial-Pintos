@@ -24,3 +24,9 @@ pintos-ic_*.html
 projects.html
 sample.tmpl.texi
 task0_sheet.pdf
+
+# ignore latex artifacts
+*.fls
+*.fdb_latexmk
+*.aux
+*.synctex.gz

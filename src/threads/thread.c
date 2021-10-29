@@ -39,18 +39,18 @@ static struct lock tid_lock;
 
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame {
-	void *eip; /* Return address. */
+	void *eip;             /* Return address. */
 	thread_func *function; /* Function to call. */
-	void *aux; /* Auxiliary data for function. */
+	void *aux;             /* Auxiliary data for function. */
 };
 
 /* Statistics. */
-static long long idle_ticks; /* # of timer ticks spent idle. */
+static long long idle_ticks;   /* # of timer ticks spent idle. */
 static long long kernel_ticks; /* # of timer ticks in kernel threads. */
-static long long user_ticks; /* # of timer ticks in user programs. */
+static long long user_ticks;   /* # of timer ticks in user programs. */
 
 /* Scheduling. */
-#define TIME_SLICE 4 /* # of timer ticks to give each thread. */
+#define TIME_SLICE 4          /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
 
 /* If false (default), use round-robin scheduler.
@@ -59,7 +59,7 @@ static unsigned thread_ticks; /* # of timer ticks since last yield. */
  */
 bool thread_mlfqs;
 
-/* Number of current ready threads (not running) */
+/* Number of current ready threads (not running). */
 static int32_t num_ready_threads;
 
 /* List of all non-empty ready_queues, in ascending order by priority.*/
@@ -160,7 +160,7 @@ void thread_start(void)
 	sema_down(&idle_started);
 }
 
-/* Returns the number of threads currently in the ready list */
+/* Returns the number of threads currently in the multilevel queue system. */
 size_t threads_ready(void)
 {
 	return num_ready_threads;
@@ -210,12 +210,12 @@ static struct thread *ready_pop(void)
 	return next_thread;
 }
 
-/* update a thread's position in the priority queue. */
+/* Update a thread's position in the priority queue. */
 void ready_queue_update(struct thread *thread)
 {
 	if (thread->status != THREAD_READY)
 		return;
-	/* interrupts disabled, an interrupt may modify the priority of the thread */
+	/* Interrupts disabled, an interrupt may modify the priority of the thread. */
 	enum intr_level old_level;
 	old_level = intr_disable();
 	ready_remove(thread);
@@ -231,11 +231,12 @@ static bool ready_queue_cmp(const struct list_elem *a,
 														const struct list_elem *b, void *aux UNUSED)
 {
 	/* Higher priorities will be later in the nonempty_ready_queues array,
-	 * so I can just compare pointers
+	 * so I can just compare pointers.
 	 */
 	return a > b;
 }
 
+/* Adds a thread to the ready threads multilevel queue system. */
 static void ready_push(struct thread *thread)
 {
 	ASSERT(thread->priority >= PRI_MIN && thread->priority <= 63);
@@ -250,7 +251,7 @@ static void ready_push(struct thread *thread)
 		list_insert_ordered(&nonempty_ready_queues, &r_list->elem, ready_queue_cmp,
 												NULL);
 
-	/* Add thread to the correct ready_queue */
+	/* Add thread to the correct ready_queue. */
 	list_push_back(&r_list->thread_queue, &thread->elem);
 	num_ready_threads++;
 	intr_set_level(old_level);
@@ -259,16 +260,16 @@ static void ready_push(struct thread *thread)
 /* Makes the scheduler acknowledge that the thread has been blocked from
  * the queue.
  *
- * The thread must already be in the tqueue data structure.
+ * The thread must already be in the multilevel queue data structure.
  */
 static void ready_remove(struct thread *thread)
 {
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	/* if the last element in the list, then get the list it is part of, then
+	/* If the last element in the list, then get the list it is part of, then
 	 * the ready_queue that it is part of, and remove that ready_queue from the
-	 * nonempty_ready_queues
+	 * nonempty_ready_queues.
 	 */
 	if (list_elem_alone(&thread->elem))
 		list_remove(&((struct ready_queue *)get_list(&thread->elem))->elem);
@@ -286,7 +287,7 @@ void thread_tick(void)
 {
 	struct thread *cur = thread_current();
 	if (thread_mlfqs) {
-		/* increment the recent cpu */
+		/* Increment the recent cpu. */
 		if (cur != idle_thread)
 			cur->recent_cpu = add_f_i(cur->recent_cpu, 1);
 
@@ -600,13 +601,13 @@ bool priority_cmp(const struct list_elem *a, const struct list_elem *b,
 
 /* Idle thread.  Executes when no other thread is ready to run.
  *
- * The idle thread is initially put on the ready list by
+ * The idle thread is initially put on the multilevel queue system by
  * thread_start().  It will be scheduled once initially, at which
  * point it initializes idle_thread, "up"s the semaphore passed
  * to it to enable thread_start() to continue, and immediately
  * blocks.  After that, the idle thread never appears in the
- * ready list.  It is returned by next_thread_to_run() as a
- * special case when the ready list is empty.
+ * multilevel queue system.  It is returned by next_thread_to_run() as a
+ * special case when the multilevel queue system is empty.
  */
 static void idle(void *idle_started_ UNUSED)
 {
