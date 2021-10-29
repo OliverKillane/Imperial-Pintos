@@ -175,8 +175,10 @@ inline void donation_cascading_update(struct thread *thread, struct lock *lock,
 		}
 	}
 	if (is_curr_thread) {
-		if (!thread->donee)
+		if (!thread->donee) {
+			ready_queue_update(thread);
 			donation_thread_update_priority(thread);
+		}
 		sema_up(&thread->donors_guard);
 	} else {
 		if (!lock->donee)
