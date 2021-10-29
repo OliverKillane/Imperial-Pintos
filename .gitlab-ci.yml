@@ -31,12 +31,21 @@ build-job:       # This job runs in the build stage, which runs first.
     - merge_requests
   
 
-unit-test-job:   # This job runs in the test stage.
+unit-test-devices:   # This job runs in the test stage.
+  stage: test    # It only starts when the job in the build stage completes successfully.
+  script:
+    - echo "Testing Devices"
+    - echo "Number of threads running is $(nproc --all)"
+    - if [[ $(make -C src/devices check -j$(nproc --all) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
+  only:
+    - merge_requests
+
+unit-test-threads:   # This job runs in the test stage.
   stage: test    # It only starts when the job in the build stage completes successfully.
   script:
     - echo "Testing"
-    - if [[ $(make -C src/devices check -j$(($(nproc --all)-1 ))) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
-    - if [[ $(make -C src/threads check -j$(($(nproc --all)-1 ))) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
+    - echo "Number of threads running is $(nproc --all)"
+    - if [[ $(make -C src/threads check -j$(nproc --all) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
   only:
     - merge_requests
 
