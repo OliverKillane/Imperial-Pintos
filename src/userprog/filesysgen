@@ -1,0 +1,19 @@
+#!/bin/bash
+if [ ! -f filesys.dsk ]; then
+	printf "Preparing a new filesys.dsk\n"
+	printf "Formatting the file system\n"
+	pintos-mkdisk build/filesys.dsk --filesys-size=4
+	pintos -f -q > /dev/null
+	PROG=$(ls -pFla ../examples | grep -v / | grep '^\S*x\S*' | awk '{print $9}' | sed 's/.$//')
+	for example in $PROG
+	do
+		printf "Copying file $example ... "
+		pintos -p ../examples/$example -- -q > /dev/null
+		printf "done\n"
+	done
+	cp build/filesys.dsk filesys.dsk
+else
+	printf "Copying existing filesys.dsk image"
+	rm -f build/filesys.dsk
+	cp filesys.dsk build/filesys.dsk
+fi
