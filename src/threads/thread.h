@@ -3,9 +3,13 @@
 
 #include <debug.h>
 #include <list.h>
+#include <vector.h>
+#include <bitmap.h>
 #include <stdint.h>
 #include "threads/donation.h"
 #include "threads/synch.h"
+
+#include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -106,7 +110,6 @@ struct thread {
 			struct lock *donee; /* The lock that receives the thread's priority */
 			struct list_elem donorelem; /* Used in donee's list of donors */
 			struct list donors; /* Locks donating their priority to the thread */
-			struct semaphore donation_guard; /* Guard of the donation system */
 		};
 	};
 	struct list_elem allelem; /* List element for all threads list. */
@@ -115,7 +118,15 @@ struct thread {
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
+#ifndef NDEBUG
+	bool may_page_fault; /* For debugging kernel */
+#endif
 	uint32_t *pagedir; /* Page directory. */
+	struct vector open_files; /* Vector of open file structs */
+	struct bitmap *open_files_bitmap; /* Which entries in open_files are taken */
+	struct list children; /* List of child processes */
+	struct child_manager *parent; /* Struct managing the child process */
+	struct file *exec_file; /* The program file the thread is running */
 #endif
 
 	/* Owned by thread.c. */

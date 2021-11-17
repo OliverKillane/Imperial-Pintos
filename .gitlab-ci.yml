@@ -49,6 +49,15 @@ unit-test-threads:   # This job runs in the test stage.
   only:
     - merge_requests
 
+unit-test-userprog:   # This job runs in the test stage.
+  stage: test    # It only starts when the job in the build stage completes successfully.
+  script:
+    - echo "Testing"
+    - echo "Number of threads running is $(nproc --all)"
+    - if [[ $(make -C src/userprog check -j$(nproc --all) ) =~ "FAIL" ]]; then exit 123; else echo "Test success"; fi
+  only:
+    - merge_requests
+
 lint-test-job:   # This job also runs in the test stage.
   stage: test    # It can run at the same time as unit-test-job (in parallel).
   script:

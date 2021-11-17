@@ -3,7 +3,8 @@ CHECKPATCH_IGNORES = "SPDX_LICENSE_TAG, UNSPECIFIED_INT, STRLCPY,              \
                       SIZEOF_PARENTHESIS, AVOID_EXTERNS, CONSIDER_COMPLETION,  \
 					  NEW_TYPEDEFS, PREFER_KERNEL_TYPES, MULTIPLE_ASSIGNMENTS, \
 					  OPEN_ENDED_LINE, MACRO_ARG_PRECEDENCE, MACRO_ARG_REUSE,  \
-					  BIT_MACRO"
+					  BIT_MACRO, DEEP_INDENTATION,                             \
+					  MULTISTATEMENT_MACRO_USE_DO_WHILE, CAMELCASE"
 GIT_BASE_COMMIT = 84de5c2bc75074d309e9efabf022b0afa80167a7
 CHECKPATCH_FLAGS =  --strict --color=always -f --no-tree                       \
                     --ignore $(CHECKPATCH_IGNORES) --tab-size=2                \
@@ -34,6 +35,7 @@ lint::
 	| grep -v -e PRI -e _Static_assert --no-group-separator                               \
 	| grep -v -e "No space is necessary after a cast" --no-group-separator                \
 	| grep -v -e "complex values should be enclosed in parentheses" --no-group-separator  \
+	| grep -v -e "36: FILE: src/lib/kernel/list.c"                                        \
 	| tee -a lint.out;                                                                    \
 	rm -f .checkpatch-camelcase.git.*
 	@if cat lint.out | grep -e WARNING -e ERROR -e CHECK; then \

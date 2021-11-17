@@ -39,18 +39,18 @@ static struct lock tid_lock;
 
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame {
-	void *eip;             /* Return address. */
+	void *eip; /* Return address. */
 	thread_func *function; /* Function to call. */
-	void *aux;             /* Auxiliary data for function. */
+	void *aux; /* Auxiliary data for function. */
 };
 
 /* Statistics. */
-static long long idle_ticks;   /* # of timer ticks spent idle. */
+static long long idle_ticks; /* # of timer ticks spent idle. */
 static long long kernel_ticks; /* # of timer ticks in kernel threads. */
-static long long user_ticks;   /* # of timer ticks in user programs. */
+static long long user_ticks; /* # of timer ticks in user programs. */
 
 /* Scheduling. */
-#define TIME_SLICE 4          /* # of timer ticks to give each thread. */
+#define TIME_SLICE 4 /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
 
 /* If false (default), use round-robin scheduler.
@@ -704,6 +704,10 @@ static void init_thread(struct thread *t, const char *name)
 	strlcpy(t->name, name, sizeof t->name);
 	t->stack = (uint8_t *)t + PGSIZE;
 	t->magic = THREAD_MAGIC;
+#ifdef USERPROG
+	list_init(&t->children);
+	t->pagedir = NULL;
+#endif
 
 	old_level = intr_disable();
 	list_push_back(&all_list, &t->allelem);

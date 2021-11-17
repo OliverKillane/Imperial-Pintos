@@ -1,0 +1,483 @@
+\documentclass{report}
+    \title{50007.1 - Laboratory - Task 2 - Design Document}
+    \author{Robbie Buxton, Jordan Hall, Bartłomiej Cieślar and Oliver Killane}
+    \date{08/11/21}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx, amssymb, amsfonts, amsmath, xcolor, listings, tcolorbox, enumerate}
+
+\graphicspath{{image/}}
+
+\definecolor{codebackdrop}{gray}{0.9}
+\definecolor{commentgreen}{rgb}{0,0.6,0}
+\lstset{
+    inputpath=../../src/userprog,
+    commentstyle=\color{commentgreen},
+    keywordstyle=\color{blue}, 
+    backgroundcolor=\color{codebackdrop}, 
+    basicstyle=\footnotesize,
+    frame=single,
+    numbers=left,
+    stepnumber=1,
+    showstringspaces=false,
+    breaklines=true,
+    postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space}
+}
+
+% COMMON TOOLS:
+\newcommand{\question}[1]{\textit{#1} \ }
+\newcommand{\sidenote}[2]{\begin{tcolorbox}[title=#1]#2\end{tcolorbox}}
+\newcommand{\bullpara}[2]{\item \textbf{#1} \ #2}
+\newcommand{\keyword}[1]{\textbf{#1}}
+
+% SYNTAX HIGHLIGHTING:
+\newcommand{\fun}[1]{\textcolor{Emerald}{\textbf{#1}}}
+\newcommand{\file}[1]{\textcolor{YellowGreen}{\textbf{#1}}}
+\newcommand{\struct}[1]{\textcolor{orange}{\textbf{#1}}}
+\newcommand{\var}[1]{\textcolor{RoyalPurple}{\textbf{#1}}}
+\newcommand{\const}[1]{\textcolor{BrickRed}{\textbf{#1}}}
+
+% CODE LISTINGS:
+% \pintoscode{startline}{endline}{title}{file}
+\newcommand{\pintoscode}[4]{\lstinputlisting[language=C, firstline = #1, firstnumber = #1, lastline = #2, title = #3]{#4}}
+
+% \pintoscode{startline}{endline}{file}
+\newcommand{\pintosfile}[3]{\pintoscode{#1}{#2}{\file{#3}}{#3}}
+
+% \codeline{language}{line}{file}
+\newcommand{\codeline}[3]{\lstinputlisting[language=#1, firstline = #2, lastline = #2]{#3}}
+
+\newcommand{\centerimage}[2]{\begin{center}
+    \includegraphics[#1]{#2}
+\end{center}}
+
+\begin{document}
+    \maketitle
+
+    \section*{Group}
+        \question{Fill in the names and email addresses of your group members.}
+        \begin{center}
+            \begin{tabular}{r l}
+                \textbf{Name} & \textbf{Email} \\
+                Bartłomiej Cieślar & bc1520@ic.ac.uk \\
+                Jordan Hall & jh4020@ic.ac.uk \\
+                Oliver Killane & ok220@ic.ac.uk \\
+                Robert Buxton & rb419@ic.ac.uk \\
+            \end{tabular}
+        \end{center}
+    
+    \section*{Preliminaries}
+        \subsection*{Latex Formatting}
+        To make this document easier to read, we have implemented a consistent style:
+        \subsubsection*{C4 (5 marks)}
+        \question{This is the question's text\dots
+        \\
+        \\ \dots it can go over several lines!}
+        \\ We also have syntax highlighting for:
+        \begin{itemize}
+            \item Functions such as \fun{schedule} or \fun{init\_thread}.
+            \item Variables such as \var{num\_ready\_threads} or \var{thread\_mlfqs}.
+            \item Structures of type definitions such as \struct{thread} or \struct{ready\_queue}.
+            \item Constants and values set in define such as \const{BINARY\_POINT} and \const{PRI\_MAX}.
+            \item Files such as \file{thread.c} and \file{fixed-point.h}.
+        \end{itemize}
+        We also include code directly from this repository, so the contents, line numbers and file titles all match their respective places.
+        \pintosfile{96}{108}{syscall.c}
+        This makes our document quicker and easier to read and mark.
+    
+    \section*{Argument Passing}
+        \subsection*{Data Structures}
+            \subsubsection*{A1 (1 mark)}
+                \question{Copy here the declaration of each new or changed struct or struct member, global or static variable, typedef or
+                enumeration. Identify the purpose of each in roughly 25 words.}
+
+								% Process info struct
+								\pintoscode{31}{35}{Process info struct}{process.c}
+								The purpose of this struct is to pass in the necessary arguments to the \fun{start\_process()}.
+								The arguments are as follows:
+								\begin{itemize}
+									\item The new stack for the process, complete with the arguments for the \fun{main()} call.
+									\item The size of the new stack; used to set the \var{esp} register.
+									\item The manager of the child process for the waiting system.
+								\end{itemize}
+
+        \subsection*{Algorithms}
+            \subsubsection*{A2 (2 marks)}
+                \question{How does your argument parsing code avoid overflowing the user's stack page? What are the efficiency considerations
+                 of your approach?}
+								\\
+								\\ A stack page overflow is avoided by checking for the amount of free space left on the page every time we want to add a new string argument.
+                                This check accounts for the word alignment of the input strings, additional pointer in the \var{argv} array, a null entry at the end of \var{argv},
+                                the size of \var{argc} and the size of the call return pointer. Additionally, there is a compile-time check for the size of the page
+                                in case it cannot accommodate even the function name. The process creation fails in case any of those size checks fail.
+                \\
+                                \\ As for the efficiency of our approach, by setting up the arguments to the call in \fun{process\_execute()},
+                                we avoid an unnecessary copy of that data into a new stack page, which allows for directly installing the page
+                                into the user page directory right after it is passed into the \fun{start\_process()}. Moreover, by setting up the
+                                \var{argv} argument during tokenization in one go, we avoid an additional pass for figuring out the pointer values
+                                to the specific string arguments. We set it up, along with the \var{argc} and the call return pointer, at the bottom of the page, because
+                                we do not know the size of the actual string values that are being set up at the same time at the top of the page and are growing in
+                                the opposite direction. After that, we use \fun{strmov()} to safely move the data to its position just below the string data
+                                to avoid problems in case the move destination overlaps with the initial place where \var{argv} is set up. An optimization we
+                                could have performed would be to place the tokenized helper string with command data directly inside the page to save a \fun{malloc()} and
+                                copying the data for \var{argv}; however, that would have required many additional moves and complexity in case of multiple spaces 
+                                between the arguments to \fun{main()} or cause the stack to store redundant data, so we did not follow through with that approach.
+        
+        \subsection*{Rationale}
+            \subsubsection*{A3 (2 marks)}
+                \question{Pintos does not implement \fun{strtok()} because it is not thread safe. Explain the problem with \fun{strtok()} 
+                and how \fun{strtok\_r()} avoids this issue.}
+                \\
+                \\The function \fun{strtok()} is not thread-safe because it uses global data. It has a static pointer which it reuses when 
+								the function is called again. This means that you cannot parse 2 strings in parallel and therefore it is not thread safe. 
+								The function \fun{strtok\_r()} on the other hand is re-entrant (‘\_r’) and it uses a locally-defined pointer. This means that 
+								no auxiliary data is globally defined and multiple threads can freely work on different strings in parallel.
+
+            \subsubsection*{A4 (3 marks)}
+                \question{In Pintos, the kernel separates commands into an executable name and arguments. In Unix-like systems, the shell 
+                does this separation. Identify three advantages of the Unix approach.}
+                % Ask on a lab if those are not too similar
+                \begin{itemize}
+                    \bullpara{Separation of concerns}{\\ If argument passing was implemented in the kernel, changes to it could result in bugs \& features of the kernel breaking, and if there is a bug in the argument passing, it could cause the kernel and hence the whole system to crash. This coupling is avoided by separating argument parsing to a program built specifically to excel at that task (a shell).}
+                    \bullpara{Extensibility of the shell}{\\ Having the shell doing argument parsing makes it easier to extend the functionalities that the user receives in the end.
+                    This is because it allows for implementing other features that would not necessairly fit in the kernel that wants to generalize its functionalities.
+                    One example is command aliasing, relative paths for scrubbing through the file system as a user, custom commands not packaged in separate programs,
+                    or splitting a process call into multiple ones with pipelining between them.}
+                    \bullpara{Modifiability at runtime} {\\ To update/change the kernel requires an OS reboot from the updated binary, this is not possible/convenient on some systems (for example cloud service infrastructure).
+                    By parsing arguments through a shell program, the shell can be shut down, updated and restarted without taking the whole system down.}
+                \end{itemize}
+            
+    \section*{System Calls}
+        \subsection*{Data Structures}
+            \subsubsection*{B1 (6 marks)}
+                \question{Copy here the declaration of each new or changed struct or struct member, global or static variable, typedef or
+                 enumeration. Identify the purpose of each in roughly 25 words.}
+
+                 % Changes to thread.h (process data)
+                \pintoscode{95}{134}{\file{thread.h}}{../threads/thread.h}
+                \struct{thread} has been altered to include the following fields:
+                \begin{center}
+                    \begin{tabular}{l p{10cm}}
+												\vspace*{2mm}
+												\var{may\_page\_fault}    & A flag for whether the kernel should panic during a page fault or assume that it is testing a user-provided pointer. \\ \vspace*{2mm}
+                        \var{open\_files}         & A vector containing pointers to the current open files. \\ \vspace*{2mm}
+                        \var{open\_files\_bitmap} & A bitmap to determine which indices in the \struct{open\_files} vector contain open files (\const{true}), and which are free spaces (\const{false}). \\ \vspace*{2mm}
+                        \var{children}            & A \struct{list} of all child processes spawned by the thread, that can be waited on. \\ \vspace*{2mm}
+                        \var{parent}              & A pointer to the parent process manager (the child manager of the thread that created this process through \fun{exec}). \\ \vspace*{2mm}
+                        \var{exec\_file}          & The program file that the process's code was loaded from, and that is kept open with writes denied for the duration of the process's runtime.
+                    \end{tabular}
+                \end{center}
+                \pagebreak
+                % Child process structure
+                \pintosfile{12}{19}{process.h}
+                The \struct{child\_manager} struct stores information on a child of a thread. It is allocated on the heap, rather than in 
+                the \struct{thread} struct so that its existence is not dependent on that of the child or parent. This ensures that the exit
+                codes of the children are preserved for the parent if it is running. It includes the following fields:
+								\begin{center}
+									\begin{tabular}{l p{10cm}}
+											\vspace*{2mm}
+											\var{release}         & A boolean stating if the other side needs to free the struct from the heap. It is set to \const{false} by default. \\ \vspace*{2mm}
+											\var{exit\_status} 		& The exit code of the child process. It is set to \const{-1} by default. \\ \vspace*{2mm}
+											\var{wait\_sema}      & A \struct{semaphore} used for waiting on a child to exit. It is set to \const{0} by default. \\ \vspace*{2mm}
+											\var{elem}            & A \struct{list\_elem} used for the list of children in the parent. \\ \vspace*{2mm}
+											\var{tid}          		& The tid of the child process. It is also used in the check for if the child has managed to load its code properly. \\
+									\end{tabular}
+								\end{center}
+                
+                % Process info struct
+                \pintosfile{30}{35}{process.c}
+                The \struct{process\_info} struct contains the setup information when creating a new process. It includes these attributes:
+								\begin{center}
+									\begin{tabular}{l p{10cm}}
+											\vspace*{2mm}
+											\var{stack\_template} & A pointer to the new stack page template \\ \vspace*{2mm}
+											\var{stack\_size} 		& The size of the new stack for the child process\\ \vspace*{2mm}
+											\var{parent}      		& A \struct{child\_manager} managing the new child process \\
+									\end{tabular}
+								\end{center}
+
+								%(parent thread, the stack size \& a template page for stack setup).
+                
+                % syscall typedef
+                \pintosfile{30}{30}{syscall.c}
+                A type for all syscall handlers. In order to reduce duplication all syscall handlers are declared with this typedef.
+                \\
+                \\ To reduce code duplication and avoid fetching unnecessary data from the interrupt frame, syscall handlers take 
+                a pointer to the \var{eax} member of the interrupt frame (to write result), and a pointer to the first of 3 possible arguments.
+                \\
+                \\ We use a \const{GET\_ARG} macro to get each argument in order:
+                % get args macro
+                \pintosfile{19}{24}{syscall.c}
+
+                An example of this is in the \fun{seek} syscall handler:
+                % seek GET_ARGS
+                \pintosfile{426}{429}{syscall.c}
+                
+                We also have a return macro set the return value. By using a macro instead of an assignment, the code is made more readable as it is clear where the return value is set.
+                % return macro
+                \pintosfile{26}{26}{syscall.c}
+                            
+
+                % Syscall functions
+                \pintosfile{44}{57}{syscall.c}
+                The prototypes for the syscall handling functions.
+
+                % Syscall handlers array
+                \pintosfile{59}{59}{syscall.c}
+                An array of syscall handling functions; upon initialization of the syscall handling, this array gets populated so 
+                that the index of a given handler is the syscall reference number.
+
+                % File sys lock
+                \pintosfile{6}{6}{syscall.h}
+                A lock used to ensure mutually exclusive accesses to the file system.
+
+            
+        \subsection*{Algorithms}
+            \subsubsection*{B2 (2 marks)}
+                \question{Describe how your code ensures safe memory access of user provided data from within the kernel.}
+                    We use several functions for verifying the safety of pointers to user provided data.
+                    % check_user_string
+                    \pintosfile{146}{159}{syscall.c}
+
+                    % check_write_user_buffer
+                    \pintosfile{129}{144}{syscall.c}
+
+                    % check_read_user_buffer
+                    \pintosfile{112}{127}{syscall.c}
+                    
+                    These functions check that the maximum memory location of the provided data is a userspace virtual address (using \fun{is\_user\_vaddr}).
+                    Then we check that the data is in valid pages by using:
+                    \begin{itemize}
+                        \bullpara{\fun{get\_user()}(\var{ptr})}{
+                            \\ Returns $-1$ if the address not is readable by the current process; otherwise, it returns the byte value under that pointer.
+                        }
+                        \bullpara{\fun{put\_user()}(\var{ptr}, val)}{
+                            \\ Returns if it has managed to write the \var{val} to the place \var{ptr} points to.
+                        }
+                    \end{itemize}
+                    We have modified \fun{page\_fault()} handler to facilitate this behaviour, by checking if the page fault has been caused by the kernel in \fun{put\_user()} or \fun{get\_user()}.
+                    % page fault changes for get_user and put_user
+                    \pintosfile{155}{162}{exception.c}
+            
+            \subsubsection*{B3 (3 marks)}
+                \question{Suppose that we choose to verify user provided pointers by validating them before use (i.e. using the first method
+                described in the spec). What is the least and the greatest possible number of inspections of the pagetable (e.g. calls to 
+                \fun{pagedir\_get\_page()}) that would need to be made in the following cases?
+                \\
+                \\ You must briefly explain the checking tactic you would use and how it applies to each case to generate your answers.}
+                \\ \\ \\
+                \\To check a user provided pointer to a buffer of a given size we complete the following steps:
+                \begin{enumerate}
+                    \bullpara{Check the largest address is in user memory}{
+                        \\ We check the highest memory address (a pointer to buffer plus size) is smaller than \const{PHYS\_BASE}
+												using \fun{is\_user\_addr()}. Because the largest memory address in the buffer is in user virtual memory so is the rest of the buffer.
+                    }
+                    \bullpara{Check if buffer's pointer is in the process's page directory}{
+                        \\ We check the buffer pointer is in a page in the page directory of the user using \fun{pagedir\_get\_user()}.
+                    }
+                    \bullpara{Check the start of all subsequent pages containing parts of the buffer}{
+                        \\ We can get the distance from the buffer pointer to the end of the page using:
+                        \\ \centerline{\const{PGSIZE} - \var{ptr} \% \const{PGSIZE}}
+                        \\
+                        \\ If the size is larger than this, we can skip to the start of this page. We use \fun{pagedir\_get\_user()} 
+												to verify the page is in the current process's page directory.
+                        \\
+                        \\ We proceed in increments of \const{PGSIZE}, checking that each page is in the user's page directory until we reach the end of the buffer.
+                        \\
+                        \\ As a result, in every page that contains part of the buffer we will have called \fun{pagedir\_get\_user()} once.
+                    }
+                \end{enumerate}
+                For null-terminated strings we do the following:
+                \begin{enumerate}
+                    \bullpara{Check first character}{
+                        \\ Check the first character is valid using \fun{is\_user\_vaddr()} and \fun{pagedir\_get\_user()}.
+                    }
+                    \bullpara{Iterate over each character}{
+                        \\ We can interate over each character, up to the final \const{NULL}.
+                        \\
+                        \\ For each character we must check the address is valid using \fun{is\_user\_vaddr()}. If the address
+                         is at the start of a page we can use \fun{pagedir\_get\_user()} to check that the page is in the current process's page directory.
+                    }
+                \end{enumerate}
+                
+                As a result for a given size we can calculate the number of calls to \fun{pagedir\_get\_user()} as:
+                \[\cfrac{\text{\var{size}}}{\text{\const{PGSIZE}}} \text{ or } \cfrac{\text{\var{size}}}{\text{\const{PGSIZE}}} + 1\]
+
+                \textbf{(a)}
+                \question{A system call that passes the kernel a pointer to 10 bytes of user data.}
+                \centerimage{width=0.8\textwidth}{B3 part a.png}
+
+                \textbf{(b)}
+                \question{A system call that passes the kernel a pointer to a full page (4,096 bytes) of user data.}
+                \centerimage{width=0.8\textwidth}{B3 part b.png}
+
+                \textbf{(c)}
+                \question{A system call that passes the kernel a pointer to 4 full pages (16,384 bytes) of user data}
+                \centerimage{width=0.8\textwidth}{B3 part c.png}
+            
+            \subsubsection*{B4 (2 marks)}
+                \question{When an error is detected during a system call handler, how do you ensure  that all temporarily allocated resources
+                (locks, buffers, etc.) are freed?}
+                \\
+                \\ As \fun{process\_exit()} is always called from \fun{thread\_exit()} we exit the thread and deallocate all held resources there.
+                \\
+                \\ \textbf{Our deallocation is split into 4 parts:}
+                \begin{enumerate}
+                    \bullpara{Freeing the children managers}{
+                    \\ This is done for all threads, not just processes. A thread may have been created and waited on by a process - e.g main thread. 
+                    \\
+                    \\ The thread or process contains a \struct{list} of \struct{child\_manager}. By using the atomic \fun{test\_and\_set()} function, 
+                    the release flag can be set synchronously without a race condition. This flag informs the child processes that the parent has terminated.
+                    They can then free their \struct{child\_manager} on termination.}
+                    \bullpara{Freeing the parent manager}{
+                    \\ This is only done by process threads, so this happens inside the if that checks if there is any page directory installed for the thread.
+                    Like for freeing of children, this is done synchronously using the release flag and an atomic \fun{test\_and\_set()}.
+                    The semaphore for the possibly waiting parent is upped beforehand.}
+                    \bullpara{Closing open files}{
+                    \\ The process's open files are contained in a vector (\struct{open\_files}) with a bitmap (\struct{open\_files\_bitmap}) determining which vector indexes contain open files.
+                    \\
+                    \\ The bitmap is traversed, and for each \const{true} value, the corresponding open file is closed.}
+                    \bullpara{Closing process executable}{
+                    \\ The process executable is kept open for the duration of the process's runtime to prevent writes to it. When the process terminates, this file is closed and the writes are allowed back again.}
+                \end{enumerate}
+                \sidenote{Filesystem Lock}{
+                    The only other resource that syscalls use is a global filesystem lock, which gets released everywhere before the thread
+                    has a chance to exit, and does not need to be freed since it is global.
+                    }
+                
+            \subsubsection*{B5 (8 marks)}
+                \question{Describe your implementation of the "wait" system call and how it interacts with process termination for both the 
+                parent and child.}
+                % wait system call
+                \pintosfile{267}{275}{syscall.c}
+									\noindent
+                                    The wait system call calls and returns the result of \fun{process\_wait()}.  
+                                    \\
+                                    \\ \fun{process\_wait()} traverses the \struct{children} list to get the \struct{child\_manager} struct of child. 
+                                    If there is no \struct{child\_manager} of the correct \var{tid} cannot be found, it returns \const{-1}.
+                                    \\
+                                    \\ The \struct{child\_manager} is allocated separately to both the parent and child processes. This ensures that 
+                                    if the child terminates, the parent can still access its exit code (for a \fun{wait} syscall). Likewise, if the parent exits, 
+                                    this is visible to the child through \var{release}.
+                                    \\
+                                    \\ The \var{wait\_sema} member of \struct{child\_manager} is used to block the parent thread as it waits on a child. 
+                                    The semaphore is initialised with a counter value of \const{0} and the parent calls \fun{sema\_down()}. \fun{sema\_up()} is called
+                                    on the semaphore by the child on exit, which unblocks the parent.
+                                    \\ 
+                                    \\ If the parent or child accesses their \struct{child\_manager} and the other has terminated, \var{release} will be true.
+                                    Release is set by the atomic \fun{test\_and\_set()} operation to prevent a race condition.
+                                    If this is the case, the remaining process can free the \struct{child\_manager}. 
+                                    In the case of the child, it does not need to place its exit status, or \fun{sema\_up()} the \var{wait\_sema}.
+                                    In the case of the parent, the \struct{child\_manager} must be removed from its list of children.
+
+        \subsection*{Synchronisation}
+            \subsubsection*{B6 (2 marks)}
+                \question{The "exec" system call returns -1 if loading the new executable fails, so it cannot return before the new 
+                executable has completed loading. How does your code ensure this? How is the load success/failure status passed back to 
+                the thread that calls "exec"?} 
+									\\ 
+									\\ The exec syscall returns the output from a call to \fun{process\_execute()} using the infrastructure already provided in pintos. This is by
+                                    setting the \var{eax} in the interrupt frame. 
+                                    \\ 
+                                    \\ For the \fun{process\_execute()} the challenge is that the loading happens in another thread. This means some form of synchronization is needed
+                                    in order to communicate if the child has failed to load. This is done by reusing the semaphore in the child manager struct in order to first wait
+                                    for the child to set its \var{tid} there. This is set to \const{-1} in case that the loading fails. After the child has performed the load it sets its parent manager \var{tid} value
+                                    and ups the semaphore there to inform the parent thread that it has performed that action.
+
+            \subsubsection*{B7 (5 marks)}
+                \question{Consider parent process P with child process C. How do you ensure proper synchronization and avoid race conditions when:}
+
+                \begin{enumerate}[(i)]
+                  \item \question{P calls wait(C) before C exits?}
+                  \item \question{P calls wait(C) after C exits?}
+                  \item \question{P terminates, without waiting, before C exits?}
+                  \item \question{P terminates, without waiting, after C exits?}
+                \end{enumerate}
+
+                \question{Additionally, how do you ensure that all resources are freed regardless of the above case?}
+                  \\
+                  \\ We handle the synchronization of the parent-child relationship by using an externally allocated struct called \struct{child\_manager}.
+                  Inside this struct there is a semaphore that is used by a parent process for waiting for a child to exit. The child calls \fun{sema\_up} when it exits
+                  and the parent calls \fun{sema\_down} when it waits for a child. This way the child can call \fun{sema\_up} upon exit, regardless of the parent's status, and the parent can call \fun{sema\_down} whenever it wants to wait on a child process.
+                  If the child has exited before the parent waits on it, the \fun{sema\_down} does not block the parent, otherwise the parent becomes blocked until the child call \fun{sema\_up} when the child exits. 
+                \\
+                \\ The second part of synchronization is done to only free the child manager once both the parent and the child process exit.
+                This is done by using a \fun{bts} instruction that can save the value of a boolean into the carry flag and set it atomically. This is
+                wrapped into a \fun{test\_and\_set()} function which is called on a release flag inside the child manager. The release flag is set to false by default.
+                If this is the first time \fun{test\_and\_set()} is called on it, the return value from the call will be false, so the manager will not be freed.
+                However, during the second call \fun{test\_and\_set()} will return true indicating that the manager should actually be released. This will be
+                done by either the parent or the child process, depending on which one is the latter to exit or wait. Since the setting and getting of the boolean is
+                atomic we prevent a race condition here.
+                  \\
+                  \\ As for the order of specific cases asked for in the question:
+                  \begin{enumerate}[(i)]
+                    \item P calls wait(C) before C exits:
+                    \begin{enumerate}
+                      \item P finds the child manager for C
+                      \item P downs the semaphore in the child manager of C
+                      \item C ups the semaphore in the parent manager, unblocking P
+                      \item C calls \fun{test\_and\_set()} and does nothing since it returned false
+                      \item C exits
+                      \item P unblocks as a result of C upping the semaphore
+                      \item P calls \fun{test\_and\_set()} and frees the child manager since it returned true
+                      \item P returns from \fun{process\_wait()}
+                    \end{enumerate}
+                    Here, the order after P is unblocked is an example, since the interleaving of the two processes there can be arbitrary,
+                    but everything is synchronized in all cases.
+                    \item P calls wait(C) after C exits
+                    \begin{enumerate}
+                      \item C ups the semaphore in the parent manager
+                      \item C calls \fun{test\_and\_set()} and does nothing since it returned false
+                      \item C exits
+                      \item P finds the child manager for C
+                      \item P downs the semaphore in the child manager of C
+                      \item P immediately passes through since the counter in the semaphore was 1 from C upping it
+                      \item P calls \fun{test\_and\_set()} and frees the child manager since it returned true
+                      \item P returns from \fun{process\_wait()}
+                    \end{enumerate}
+                    \item P terminates, without waiting, before C exits
+                    \begin{enumerate}
+                      \item P gets to C while freeing its children
+                      \item P calls \fun{test\_and\_set()} and does nothing since it returned false
+                      \item P exits 
+                      \item C ups the semaphore in the parent manager
+                      \item C calls \fun{test\_and\_set()} and frees the child manager since it returned true
+                      \item C exits
+                    \end{enumerate}
+                    \item P terminates, without waiting, after C exits
+                    \begin{enumerate}
+                      \item C ups the semaphore in the parent manager
+                      \item C calls \fun{test\_and\_set()} and does nothing since it returned false
+                      \item C exits
+                      \item P gets to C while freeing its children
+                      \item P calls \fun{test\_and\_set()} and frees the child manager since it returned true
+                      \item P exits
+                    \end{enumerate}
+                  \end{enumerate}
+        
+        \subsection*{Rationale}
+            \subsubsection*{B8 (2 marks)}
+                \question{Why did you choose to implement safe access of user memory from the kernel in the way that you did?}
+                  \\
+				    			\\ We chose the second approach suggested in the spec. This is because we will need to handle it this way for the third part of the
+                                project: the implementation of virtual memory. 
+                                \\
+                                \\It also makes the code for the buffer checking shorter and faster because we do not need to enter the user's page directory 
+                                and check its contents, and can take advantage the MMU (Memory Management Unit) of the processor to check virtual addresses are valid more quickly.
+
+            \subsubsection*{B9 (2 marks)}
+                \question{What advantages and disadvantages can you see to your design for file descriptors?}
+								\\
+								\\ Our file management design is focused on speed and memory efficiency. It uses resizable vectors to
+								keep track of currently open files and a bitmap of the fields in a vector that contains open files
+								in order to have the possibility to be able to reuse those entries once they get vacated by a file being closed. This ensures
+								memory utilization equal to the largest number of files ever opened by the process. This can be expected to be similar
+								to the number of files opened at any given time throughout the lifetime of the process. It also allows for a
+								quick conversion between file descriptors and file struct pointers.
+								\\
+								\\ The disadvantage of this approach is that it requires 3 additional \fun{malloc()}s and associated \fun{free}s for allocating our vector of files and bitmap. 
+                                This means our solution has higher memory usage than a list based implementation.
+                                \\
+                                \\ We decided increased memory usage was well worth the increased speed of accessing files.
+
+\end{document}
