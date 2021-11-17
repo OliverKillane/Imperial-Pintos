@@ -1,5 +1,6 @@
 #!/bin/bash
 if [ ! -f filesys.dsk ]; then
+	rm -f build/filesys.dsk
 	printf "Preparing a new filesys.dsk\n"
 	printf "Formatting the file system\n"
 	pintos-mkdisk build/filesys.dsk --filesys-size=4
@@ -8,7 +9,7 @@ if [ ! -f filesys.dsk ]; then
 	for example in $PROG
 	do
 		printf "Copying file $example ... "
-		pintos -p ../examples/$example -- -q > /dev/null
+		pintos -p ../examples/$example -a $example -- -q > /dev/null
 		printf "done\n"
 	done
 	cp build/filesys.dsk filesys.dsk

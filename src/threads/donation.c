@@ -15,145 +15,136 @@ static inline void donation_thread_update_donation(struct thread *thread);
 static inline void donation_lock_update_donation(struct lock *lock);
 
 /* Initializes the values in struct thread_priority inside the thread that
- * correspond to the donation system, as well as the semaphore-based guard for
- * that data
+ * correspond to the donation system.
  */
 void donation_thread_init(struct thread *thread, int8_t base_priority)
 {
 	thread->priority = thread->base_priority = base_priority;
-	sema_init(&thread->donation_guard, 1);
 	thread->donee = NULL;
 	list_init(&thread->donors);
 }
 
 /* Initializes the values in struct lock_priority inside the lock that
- * correspond to the donation system, as well as the semaphore-based guard for
- * that data
+ * correspond to the donation system.
  */
 void donation_lock_init(struct lock *lock)
 {
-	sema_init(&lock->donation_guard, 1);
 	lock->priority = PRI_MIN;
 	lock->donee = NULL;
 	list_init(&lock->donors);
 }
 
 /* Signifies that the thread is now being blocked by a lock. The thread
- * cannot be blocked by any other lock. The function blocks the access to the
- * data of both thread and the lock.
+ * cannot be blocked by any other lock. The function disables intrupts.
  */
 void donation_thread_block(struct thread *thread, struct lock *lock)
 {
-	sema_down(&thread->donation_guard);
+	enum intr_level old_level;
+
+	old_level = intr_disable();
 	ASSERT(!thread->donee);
 	thread->donee = lock;
-	sema_down(&lock->donation_guard);
 
 	donation_thread_update_priority(thread);
 
 	list_insert_ordered(&lock->donors, &thread->donorelem,
 											donation_thread_less_func, NULL);
-	sema_up(&thread->donation_guard);
 
 	for (int depth = 0; depth < DONATION_MAX_DEPTH && lock->donee; depth++) {
 		thread = lock->donee;
-		sema_down(&thread->donation_guard);
 		donation_lock_update_priority(lock);
 		donation_lock_update_donation(lock);
-		sema_up(&lock->donation_guard);
 
 		if (!thread->donee) {
 			donation_thread_update_priority(thread);
 			ready_queue_update(thread);
-			sema_up(&thread->donation_guard);
+			intr_set_level(old_level);
 			return;
 		}
 
 		lock = thread->donee;
-		sema_down(&lock->donation_guard);
+		old_level = intr_disable();
 		donation_thread_update_priority(thread);
 		donation_thread_update_donation(thread);
-		sema_up(&thread->donation_guard);
 	}
 	if (!lock->donee)
 		donation_lock_update_priority(lock);
-	sema_up(&lock->donation_guard);
+	intr_set_level(old_level);
 }
 
 /* Signifies that the thread is no longer being blocked by the thread it was
  * marked as blocked by. The thread must be blocked by another lock already.
  * The lock the thread was blocked by must not be acquired by any thread.
- * The function blocks the access to the data about the thread's donee's donors.
+ * The function disables intrupts.
  */
 void donation_thread_unblock(struct thread *thread)
 {
-	sema_down(&thread->donation_guard);
+	enum intr_level old_level;
+	old_level = intr_disable();
+	;
 	ASSERT(thread->donee);
 	struct lock *lock = thread->donee;
 	ASSERT(!lock->donee);
 	thread->donee = NULL;
 
-	sema_down(&lock->donation_guard);
 	list_remove(&thread->donorelem);
-	sema_up(&thread->donation_guard);
 	donation_lock_update_priority(lock);
-	sema_up(&lock->donation_guard);
+	intr_set_level(old_level);
 }
 
 /* Signifies that the thread has successfully acquired the lock. The lock cannot
- * already be acquired by any other thread. The function blocks the access to
- * the data of both thread and the lock.
+ * already be acquired by any other thread. The function disables intrupts.
  */
 void donation_thread_acquire(struct thread *thread, struct lock *lock)
 {
-	sema_down(&lock->donation_guard);
+	enum intr_level old_level;
+	old_level = intr_disable();
+
 	ASSERT(!lock->donee);
 	lock->donee = thread;
-	sema_down(&thread->donation_guard);
 
 	donation_lock_update_priority(lock);
 
 	list_insert_ordered(&thread->donors, &lock->donorelem,
 											donation_lock_less_func, NULL);
-	sema_up(&lock->donation_guard);
 	donation_thread_update_priority(thread);
-	sema_up(&thread->donation_guard);
+	intr_set_level(old_level);
 }
 
 /* Signifies that the thread holding the lock has released it. The thread
  * holding the lock cannot be blocked by any other lock. The lock must be
- * already held by some thread. The function blocks the access to the data
- * about the lock's donee's donors.
+ * already held by some thread. The function disables interrupts.
  */
 void donation_thread_release(struct lock *lock)
 {
-	sema_down(&lock->donation_guard);
+	enum intr_level old_level;
+
+	old_level = intr_disable();
 	ASSERT(lock->donee);
 	struct thread *thread = lock->donee;
 	ASSERT(!thread->donee);
 	lock->donee = NULL;
 
-	sema_down(&thread->donation_guard);
 	list_remove(&lock->donorelem);
-	sema_up(&lock->donation_guard);
+
 	donation_thread_update_priority(thread);
-	sema_up(&thread->donation_guard);
+	intr_set_level(old_level);
 }
 
 /* Sets the base priority of the thread. The thread must not be
  * blocked by any other thread. New base priority must be
- * between PRI_MIN and PRI_MAX. The function blocks access to thread's donors
- * data.
+ * between PRI_MIN and PRI_MAX. The function disables intrupts.
  */
 void donation_set_base_priority(struct thread *thread, int base_priority)
 {
-	sema_down(&thread->donation_guard);
+	enum intr_level old_level;
+	old_level = intr_disable();
 	ASSERT(!thread->donee);
 	ASSERT(base_priority >= PRI_MIN && base_priority <= PRI_MAX);
 
 	thread->base_priority = base_priority;
 	donation_thread_update_priority(thread);
-	sema_up(&thread->donation_guard);
+	intr_set_level(old_level);
 }
 
 /* Returns the base priority of the thread */
