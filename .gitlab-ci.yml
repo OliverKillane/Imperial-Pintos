@@ -26,6 +26,7 @@ build-job:       # This job runs in the build stage, which runs first.
     - echo "Compiling the code..."
     - make -C src/devices -j$(nproc --all) -WError -Wno-unused-parameter -Wno-unused-function
     - make -C src/threads -j$(nproc --all) -WError -Wno-unused-parameter -Wno-unused-function
+    - make -C src/userprog -j$(nproc --all) -WError -Wno-unused-parameter -Wno-unused-function
     - echo "Compile complete."
   only:
     - merge_requests
