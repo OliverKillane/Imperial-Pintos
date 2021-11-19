@@ -82,7 +82,7 @@
             \item Files such as \file{thread.c} and \file{fixed-point.h}.
         \end{itemize}
         We also include code directly from this repository, so the contents, line numbers and file titles all match their respective places.
-        \pintosfile{96}{108}{syscall.c}
+        \pintosfile{98}{110}{syscall.c}
         This makes our document quicker and easier to read and mark.
     
     \section*{Argument Passing}
@@ -138,7 +138,8 @@
                 does this separation. Identify three advantages of the Unix approach.}
                 % Ask on a lab if those are not too similar
                 \begin{itemize}
-                    \bullpara{Separation of concerns}{\\ If argument passing was implemented in the kernel, changes to it could result in bugs \& features of the kernel breaking, and if there is a bug in the argument passing, it could cause the kernel and hence the whole system to crash. This coupling is avoided by separating argument parsing to a program built specifically to excel at that task (a shell).}
+                    \bullpara{Separation of concerns}{\\ If argument passing was implemented in the kernel, changes to it could result in bugs and features of the kernel breaking, and 
+                    if there is a bug in the argument passing, it could cause the kernel and hence the whole system to crash. This coupling is avoided by separating argument parsing to a program built specifically to excel at that task (a shell).}
                     \bullpara{Extensibility of the shell}{\\ Having the shell doing argument parsing makes it easier to extend the functionalities that the user receives in the end.
                     This is because it allows for implementing other features that would not necessairly fit in the kernel that wants to generalize its functionalities.
                     One example is command aliasing, relative paths for scrubbing through the file system as a user, custom commands not packaged in separate programs,
@@ -458,7 +459,7 @@
         \subsection*{Rationale}
             \subsubsection*{B8 (2 marks)}
                 \question{Why did you choose to implement safe access of user memory from the kernel in the way that you did?}
-                  \\
+                                \\
 				    			\\ We chose the second approach suggested in the spec. This is because we will need to handle it this way for the third part of the
                                 project: the implementation of virtual memory. 
                                 \\
@@ -476,8 +477,14 @@
 								quick conversion between file descriptors and file struct pointers.
 								\\
 								\\ The disadvantage of this approach is that it requires 3 additional \fun{malloc()}s and associated \fun{free}s for allocating our vector of files and bitmap. 
-                                This means our solution has higher memory usage than a list based implementation.
+                                This means our solution has higher memory usage than a list based implementation. We decided increased memory usage was well worth the increased speed of accessing files.
                                 \\
-                                \\ We decided increased memory usage was well worth the increased speed of accessing files.
-
+                                \\ Another approach we considered that would have possibly saved us some file creation and deletion latency would be the usage of a hashmap.
+                                However, we decided against it, since opening the files is not a time-critical action that the user will perform multiple times. 
+                                Moreover, since the number of files per-process is not expected to be high in such a small system.
+                                Therefore iterating through the bitmap is not going to add much overhead to the \fun{open} and \fun{close} syscalls.
+                                \\
+                                \\ A different improvement would be to replace the bitmap we use for reusing fields in the vector with an interval tree.
+                                However, using that structure would have added additional latency for smaller number of open files, as well as additional memory usage. Thus, we decided not to use it either, despite better
+                                asymptotic complexity.
 \end{document}
