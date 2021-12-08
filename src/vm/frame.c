@@ -57,7 +57,6 @@ static inline void *fte_to_kpage(struct fte *fte);
 
 static inline bool frame_was_accessed(struct fte *entry);
 static inline void frame_reset_accessed(struct fte *entry);
-static inline void frame_evict(struct fte *entry, void *page);
 static void frame_reset(struct fte *entry);
 
 /* Initialise the frame system. Palloc must be initialised. */
@@ -90,30 +89,40 @@ void *frame_get(void)
 	lock_acquire(&used_queue_lock);
 	struct fte *evictee;
 	void *page;
-	{
-		/* Run second chance algorithm, using USED_QUEUE as a circular queue.
-		 * FRAME_WAS_ACCESSED and FRAME_RESET_ACCESSED functions check for
-		 * access of mmaps (requires accessing multiple page directories),
-		 * swappable frames.
-		 */
-		struct list_elem *evictee_elem = list_pop_front(&used_queue);
+	/* Run second chance algorithm, using USED_QUEUE as a circular queue.
+ 	 * FRAME_WAS_ACCESSED and FRAME_RESET_ACCESSED functions check for
+	 * access of mmaps (requires accessing multiple page directories),
+	 * swappable frames.
+	 */
+	struct list_elem *evictee_elem = list_pop_front(&used_queue);
+	evictee = list_entry(evictee_elem, struct fte, used_elem);
+	page = fte_to_kpage(evictee);
+
+	while (frame_was_accessed(evictee)) {
+		frame_reset_accessed(evictee);
+		list_push_back(&used_queue, evictee_elem);
+
+		evictee_elem = list_pop_front(&used_queue);
 		evictee = list_entry(evictee_elem, struct fte, used_elem);
 		page = fte_to_kpage(evictee);
+	}
 
-		while (frame_was_accessed(evictee)) {
-			frame_reset_accessed(evictee);
-			list_push_back(&used_queue, evictee_elem);
+	/* Evict the frame, and reset ownership. */
+	if (evictee->is_swappable) {
+		uint32_t *pd = evictee->pd;
+		void *vpage = evictee->vpage;
 
-			evictee_elem = list_pop_front(&used_queue);
-			evictee = list_entry(evictee_elem, struct fte, used_elem);
-			page = fte_to_kpage(evictee);
-		}
-
-		/* Evict the frame, and reset ownership. */
-		frame_evict(evictee, page);
 		frame_reset(evictee);
-	};
-	lock_release(&used_queue_lock);
+
+		swap_page_evict(page, pd, vpage, &used_queue_lock);
+	} else {
+		void *shared_mmap = evictee->shared_mmap;
+
+		frame_reset(evictee);
+
+		mmap_frame_evict(page, shared_mmap, &used_queue_lock);
+	}
+	ASSERT(!lock_held_by_current_thread(&used_queue_lock));
 
 	/* Return the locked frame (cannot be evicted). */
 	return page;
@@ -291,13 +300,4 @@ static inline void frame_reset_accessed(struct fte *entry)
 		swap_page_reset_accessed(entry->pd, entry->vpage);
 	else
 		mmap_frame_reset_accessed(entry->shared_mmap);
-}
-
-/* Evict a frame, delegating to the function for the type of frame. */
-static inline void frame_evict(struct fte *entry, void *page)
-{
-	if (entry->is_swappable)
-		swap_page_evict(page, entry->pd, entry->vpage);
-	else
-		mmap_frame_evict(page, entry->shared_mmap);
 }

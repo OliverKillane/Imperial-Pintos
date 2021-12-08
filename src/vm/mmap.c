@@ -160,6 +160,14 @@ bool mmap_register(struct file *file, off_t offset, int16_t length,
 		 */
 		filesys_enter();
 		shared_mmap->file = file_reopen(file);
+		if (!shared_mmap->file) {
+			filesys_exit();
+			lock_release(&mmaps_lock);
+			free(user_mmap);
+			free(shared_mmap);
+			pagedir_clear_page(pd, vpage);
+			return false;
+		}
 		if (!writable)
 			file_deny_write(shared_mmap->file);
 		filesys_exit();
@@ -368,9 +376,12 @@ void mmap_load(struct user_mmap *user_mmap)
 }
 
 /* Evict a frame for an mmaped file, informing all page table entries using it
- * KPAGE must be frame locked before calling.
+ * KPAGE must be frame locked before calling. USED_QUEUE_LOCK is used to release
+ * access to the used_queue, so that other evictions can occur.
+ * USED_QUEUE_LOCK must be released before the funtion returns.
  */
-void mmap_frame_evict(void *kpage, struct shared_mmap *shared_mmap)
+void mmap_frame_evict(void *kpage, struct shared_mmap *shared_mmap,
+											struct lock *used_queue_lock)
 {
 	lock_acquire(&shared_mmap->lock);
 
@@ -385,16 +396,15 @@ void mmap_frame_evict(void *kpage, struct shared_mmap *shared_mmap)
 		pagedir_set_mmaped_page(user_mmap->pd, user_mmap->vpage, user_mmap);
 	}
 
+	/* For letting the used queue take possible swappable pages to evict */
+	lock_release(used_queue_lock);
+
 	/* Write back, check if lock held (if the current process has page faulted
 	 * while writing to file system, do not re-acquire the lock).
 	 */
-	if (!filesys_lock_held()) {
-		filesys_enter();
-		write_back(shared_mmap, kpage);
-		filesys_exit();
-	} else {
-		write_back(shared_mmap, kpage);
-	}
+	filesys_enter();
+	write_back(shared_mmap, kpage);
+	filesys_exit();
 
 	lock_release(&shared_mmap->lock);
 }

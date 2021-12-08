@@ -18,7 +18,8 @@ bool swap_load(void *page, swapid_t id);
 bool swap_free(swapid_t id);
 
 /* Swap access functions - used in frame system. */
-void swap_page_evict(void *kpage, uint32_t *pd, void *vpage);
+void swap_page_evict(void *kpage, uint32_t *pd, void *vpage,
+										 struct lock *used_queue_lock);
 void swap_page_reset_accessed(uint32_t *pd, void *vpage);
 bool swap_page_was_accessed(uint32_t *pd, void *vpage);
 

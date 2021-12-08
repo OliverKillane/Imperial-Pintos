@@ -24,6 +24,10 @@ struct lazy_load *create_lazy_load(struct file *file, off_t file_offset,
 		return NULL;
 	lazy->is_lazy = true;
 	lazy->file = file_reopen(file);
+	if (!lazy->file) {
+		free(lazy);
+		return NULL;
+	}
 	file_deny_write(lazy->file);
 	lazy->file_offset = file_offset;
 	lazy->length = length;
