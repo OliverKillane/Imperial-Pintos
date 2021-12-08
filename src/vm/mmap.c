@@ -340,7 +340,7 @@ void mmap_load(struct user_mmap *user_mmap)
 	lock_acquire(&shared_mmap->lock);
 
 	/* If the mmap is already loaded, can just return. */
-	if (pagedir_get_page_type(user_mmap->pd, user_mmap->vpage) != MMAPPED) {
+	if (pagedir_get_page_type(user_mmap->pd, user_mmap->vpage) != MMAPED) {
 		lock_release(&shared_mmap->lock);
 		return;
 	}

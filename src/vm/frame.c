@@ -85,15 +85,15 @@ void *frame_get(void)
 	if (new_page)
 		return new_page;
 
-	/* If there are no free frames available, must evict a page & replace. */
-	lock_acquire(&used_queue_lock);
-	struct fte *evictee;
-	void *page;
-	/* Run second chance algorithm, using USED_QUEUE as a circular queue.
- 	 * FRAME_WAS_ACCESSED and FRAME_RESET_ACCESSED functions check for
+	/* If there are no free frames available, must evict a page & replace.
+	 * Run second chance algorithm, using USED_QUEUE as a circular queue.
+	 * The frame_was_accessed() and frame_reset_accessed() functions check for
 	 * access of mmaps (requires accessing multiple page directories),
 	 * swappable frames.
 	 */
+	lock_acquire(&used_queue_lock);
+	struct fte *evictee;
+	void *page;
 	struct list_elem *evictee_elem = list_pop_front(&used_queue);
 	evictee = list_entry(evictee_elem, struct fte, used_elem);
 	page = fte_to_kpage(evictee);

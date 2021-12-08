@@ -189,9 +189,8 @@ tid_t process_execute(const char *command)
 						struct child_manager *child = child_data.parent;
 
 						/* Create a new thread to execute the process. */
-						tid_t tid;
-						tid = thread_create(file_name_str, PRI_DEFAULT, start_process,
-																&child_data);
+						tid_t tid = thread_create(file_name_str, PRI_DEFAULT, start_process,
+																			&child_data);
 						if (tid != TID_ERROR) {
 							free(command_tok);
 							sema_down(&child->wait_sema);

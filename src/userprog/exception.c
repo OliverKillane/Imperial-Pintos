@@ -172,7 +172,7 @@ static void page_fault(struct intr_frame *f)
 	 * 2. Load the mmap data from the filesystem to a new frame and set page
 	 *    table (done inside MMAP_LOAD).
 	 */
-	case MMAPPED:
+	case MMAPED:
 		mmap_load(pte_get_user_mmap(pte_val));
 		return;
 
