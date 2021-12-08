@@ -1,0 +1,154 @@
+Consequent tasks:
+ - page swapping API
+ - caching/evicting executables API
+ - change open, close, read and write up to use file caching and to keep fd data in some different way maybe?
+ - implement mmap and munmap
+ - implement implicit stack growth with page faults
+ - implement executable caching in
+
+Hints about implementation details:
+ - page swapping API:
+   - data structure for it (per process/global) !!!CRITICAL!!!
+   - probably under src/vm
+   - we need to synchronize data transfers between the swap and the ram - page locking + test_and_set(maybe move it to synch)
+   - we can use the 3 free bits of the swap to store some dispatch info
+   - potential structures needed: supplemental page table(can be avoided if we use the 3 free bits correctly), frame table and a swap table
+   - info needed about the page: is it a file cache, is it in swap and where, is it in a frame and where, is it page-locked
+   - we need some form of synchronization if the page is not page-locked
+   - we need to decide on the eviction algorithm (first in first out (FIFO) vs least recently used (LRU) vs (better if they exist?))
+   - we cannot swap kernel pages
+   - we need a frame table (is per process/global)
+   - we need a swap table (is per process/global)
+ - caching/evicting executables API
+   - data structure for it (per process/global) !!!CRITICAL!!!
+   - is gonna be heavily related to the page swapping API - maybe join them together or split it up a bit more?
+   - potential structure needed: some register (global/per process) to store mmaping info; data either stored segment-wise or page-wise(better imo)
+   - lazy loading is the same as evicted mmap cache 
+   - keep track of where in the user space we should put the mmap
+   - how should shared mmap pages in one frame work (managing updates of different pagedirs) !!!CRITICAL!!!
+ - change/implement open, close, read, write, length, seek, tell:
+   - think of whether it is better to have separate systems for the fd stuff and mmap 
+        or whether to implement the file pointer feature - no, it should be the same system (needs to be synchronized)
+ - implement implicit stack growth with page faults:
+   - set some limit on the stack size
+   - check for whether the access is valid for extending the stack
+
+Preliminary feature list:
+ - mmaping:
+   - mmap: maps a file into the user's address space and returns mmapid_t for it and the address to it
+   - munmap: removes those mappings, and, if needed, writes back the cached frames
+ - stack growth:
+   - can be done with lazy-zeroing pages
+ - lazy loading executables:
+   - can be implemented with frame-wise file caching
+
+Preliminary code outline:
+ - page faulting:
+   - it needs to identify if that page is not mapped at all,
+     if it is an mmaped page (read-only or read-write),
+     if it is a lazy-zeroed page,
+     if it is a paged-out page
+   - if it is an mmaping and there is already a frame for it, then connect to it and return
+   - it is going to find a frame to page-out with 2Q algorithm
+   - page lock this frame here
+   - if it is a free page, then skip paging-out
+   - if it is not, then find a free spot in swap and copy that frame into that spot
+   - copy the page into the newly freed frame
+   - page-unlock it
+   - inform the mmaping system of a newly installed frame
+ - mmap:
+   - for each page that the file needs:
+     - inform the mmaping system that there is a shared mmaped entry for this file and this offset (or not if it is already set up) and that this process is holding it
+     - inform the page table of the user of that mmaping system entry and set up the PTE for that page accordingly
+ - munmap:
+   - for each page that the file needs:
+     - there will certainly be an entry in the mmaping system for that page, so remove this process from that entry and if there are no processes left then remove that entry
+     - if there is a frame for it and it is dirty then cache it out
+     - inform the page table of the user of that removal and modify the PTE for that page accordingly
+ - palloc_init():
+   - initialize the 2Q algorithm (inline)
+ - start_process():
+   - for each stack page except for the top one inform the PTE that it is lazy-zeroed
+   - lazy-load the files by having the load_segment modified to use the mmaping system
+ - pagedir_destroy():
+   - add a funcitonality of destroying an mmaping for that page
+   - inform the frame table that that page is no longer used
+ - frame eviction algorithm:
+   - http://www.vldb.org/conf/1994/P439.PDF
+   - try the metavars suggested in the paper first, but try to fine-tune it as well
+
+API design:
+ - mmaping system:
+   - low-level:
+     - mapping {inode, offset} to:
+       - whether it has a corresponding mapping to a frame and what is it
+       - which processes have that entry installed in their page tables and where
+     - add a process to that mapping
+     - install a frame into {inode, offset} registry: modify the frame table and the mmaping table for it
+     - check if there is a frame for that mapping and return it
+     - set the frame being available for the mmaping
+     - remove a process from the mmaping entry:
+       - if it is the only process left for that entry and there is a frame for that entry, then free that frame
+     - needs to be impleented in mmap.h
+ - page table utilization design:
+   - the following formats hold:
+     - regular format
+     - in swap format:
+       - 31-2: swap_id
+       - 2: is in swap (1)
+       - 1: is mmaped (0)
+       - 0: is present (0)
+     - mmaped format:
+       - 31-3: pointer to a malloc of {list_elem, mmaped_page*}
+       - 1: is mmaped (1)
+       - 0: is present (0)
+     - should be zeroed:
+       - 4: writable
+       - 3: should be zeroed (1)
+       - 2: is in swap (0)
+       - 1: is mmaped (0)
+       - 0: is present (0)
+   - needs to be implemented in pagedir.h
+ - swap system:
+   - interval tree of whether a certain slot is free
+   - is writable
+ - frame table:
+   - the frame table is a single malloced static array of:
+     - the type of the entry: mmap/regular
+     - the pointer to shared_mmaped_page/the pointer to processes pte for its page
+   - the queues for the 2Q algorithm are gonna be circular statically-sized queues
+     of sizes (as suggested by the paper):
+       - Ain:  1/5 * |frames|
+       - Aout: 2/5 * |frames|
+       - Am:   4/5 * |frames|
+   - user can change those ratios by themselves
+
+Second-chance algorithm(source):
+ - while true:
+   - queue_lock.acquire()
+   - if queue.empty():
+     - queue_lock.release()
+     - continue
+   - while queue.front().acquired:
+     - queue.front().acquired = 0;
+     - queue.rotate()
+   - to_evict = queue.pop_front()
+   - queue_lock.release()
+   - to_evict.evict()
+   - to_evict.relase_holder()
+   - return to_evict
+
+TODO:
+ - implement the additional functions for pagedir
+ - implement mmaping system
+ - modify syscall.c and process.c not to use the open_files_bitmap
+ - implement mmap and munmap
+ - modify page_fault
+ - modify load_segment
+ - modify pagedir_destroy
+ - add initializations to main() in init.c
+OPTIONAL TODO:
+ - implement 2Q algorithm
+ - change mmaping up to use a pointer directly to pte rather than to the pagedir
+   and the user page
+ - change test_and_set to use _atomic rather than _sync

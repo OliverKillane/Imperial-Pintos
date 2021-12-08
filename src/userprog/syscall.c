@@ -11,14 +11,26 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
+#include "threads/palloc.h"
+
+#ifdef VM
+
+#include "userprog/pagedir.h"
+#include "vm/mmap.h"
+#include "threads/malloc.h"
+
+#define MAP_FAILED (-1)
+
+#endif
+
+#define FILE_FAILED (-1)
 
 /* Take an argument of a type from the pointer, then increment.
  * To be used to get arguments from syscall interrupt frame's stack
  */
-
 #define GET_ARG(ptr, type, name)                                               \
 	type name;                                                                   \
-	if (!check_read_user_buffer(ptr, sizeof(type)))                              \
+	if (!check_user_buffer(ptr, sizeof(type)))                                   \
 		thread_exit();                                                             \
 	memcpy(&name, ptr, sizeof(type));                                            \
 	ptr += sizeof(void *)
@@ -28,6 +40,13 @@
 #define PAGESTART(ptr) (((uintptr_t)ptr / PGSIZE) * PGSIZE)
 
 typedef void sys_handle(uint32_t *, const void *);
+
+/* intermediate page buffer for reading and writing to files */
+int8_t *read_write_buffer;
+struct lock read_write_buffer_lock;
+
+/* Global lock for accessing files */
+struct lock filesys_lock;
 
 /* Lock file on entry */
 void filesys_enter(void)
@@ -39,6 +58,12 @@ void filesys_enter(void)
 void filesys_exit(void)
 {
 	lock_release(&filesys_lock);
+}
+
+/* Check if already in the filesystem. */
+bool filesys_lock_held(void)
+{
+	return lock_held_by_current_thread(&filesys_lock);
 }
 
 /* Syscall handling subroutines. */
@@ -56,20 +81,30 @@ static sys_handle seek;
 static sys_handle tell;
 static sys_handle close;
 
+#ifdef VM
+
+static sys_handle mmap;
+static sys_handle munmap;
+
+/* Helper function for failures in mmap and for destroying in munmap. */
+static void unregister_all_mmaps(struct list *user_mmaps);
+
+typedef int mapid_t;
+
+#endif
+
 static void syscall_handler(struct intr_frame *);
 
 static sys_handle *syscall_handlers[NUM_SYSCALL];
 
 /* Safe access to user memory */
-bool check_read_user_buffer(const void *buffer_, unsigned size);
+bool check_user_buffer(const void *buffer_, unsigned size);
 bool check_write_user_buffer(void *buffer_, unsigned size);
 static bool check_user_string(const char *str);
 static int get_user(const uint8_t *uaddr);
 static bool put_user(uint8_t *udst, uint8_t byte);
 
-static inline size_t fd_to_idx(unsigned fd);
-static inline unsigned idx_to_fd(size_t idx);
-static inline struct file *get_file(size_t idx);
+static inline struct file *get_file(unsigned fd);
 
 void syscall_init(void)
 {
@@ -91,14 +126,25 @@ void syscall_init(void)
 	syscall_handlers[SYS_TELL] = tell;
 	syscall_handlers[SYS_CLOSE] = close;
 
+#ifdef VM
+	syscall_handlers[SYS_MMAP] = mmap;
+	syscall_handlers[SYS_MUNMAP] = munmap;
+#endif
+
 	/* Initialize global filesystem lock */
 	lock_init(&filesys_lock);
+
+	/* Palloc the buffer used to copy data */
+	read_write_buffer = palloc_get_page(0);
+	if (!read_write_buffer)
+		PANIC("Failed to palloc a read/write buffer for filesys");
+	lock_init(&read_write_buffer_lock);
 }
 
 static void syscall_handler(struct intr_frame *f)
 {
 	/* Get the args from the stack. */
-	if (!check_read_user_buffer(f->esp, sizeof(int)))
+	if (!check_user_buffer(f->esp, sizeof(int)))
 		thread_exit();
 	int syscall_ref = *(int *)(f->esp);
 
@@ -112,7 +158,7 @@ static void syscall_handler(struct intr_frame *f)
 /* Checks if the buffer BUFFER of size SIZE can be safely accessed
  * by the kernel.
  */
-bool check_read_user_buffer(const void *buffer_, unsigned size)
+bool check_user_buffer(const void *buffer_, unsigned size)
 {
 	const uint8_t *buffer = buffer_;
 	if (!size)
@@ -122,23 +168,6 @@ bool check_read_user_buffer(const void *buffer_, unsigned size)
 	for (uint8_t *page = (uint8_t *)PAGESTART(buffer); page <= buffer;
 			 page += PGSIZE)
 		if (get_user((void *)page) == -1)
-			return false;
-	return true;
-}
-
-/* Checks if the buffer BUFFER of size SIZE can be safely written to
- * by the kernel.
- */
-bool check_write_user_buffer(void *buffer_, unsigned size)
-{
-	uint8_t *buffer = buffer_;
-	if (!size)
-		return true;
-	if (!is_user_vaddr(buffer + size - 1))
-		return false;
-	for (uint8_t *page = (uint8_t *)PAGESTART(buffer); page <= buffer;
-			 page += PGSIZE)
-		if (!put_user(page, get_user((void *)page)))
 			return false;
 	return true;
 }
@@ -195,46 +224,22 @@ bool put_user(uint8_t *udst, uint8_t byte)
 	return error_code != -1;
 }
 
-/* Convert a file descriptor FD to an index required to get an open file from a
- * thread.
- */
-size_t fd_to_idx(unsigned fd)
-{
-	ASSERT(fd != STDOUT_FILENO && fd != STDIN_FILENO);
-	size_t idx = (size_t)fd;
-
-	if (fd > STDOUT_FILENO)
-		idx--;
-	if (fd > STDIN_FILENO)
-		idx--;
-
-	return idx;
-}
-
-/* Convert an index IDX (for file in thread's open files vector) into a file
- * descriptor.
- */
-unsigned idx_to_fd(size_t idx)
-{
-	unsigned fd = (unsigned)idx;
-
-	if (idx <= STDOUT_FILENO)
-		fd++;
-	if (idx <= STDIN_FILENO)
-		fd++;
-
-	return fd;
-}
+/* Start of valid file descriptors */
+#if STDIN_FILENO < STDOUT_FILENO
+#define FD_START (STDOUT_FILENO + 1)
+#else
+#define FD_START (STDIN_FILENO + 1)
+#endif
 
 /* Returns the file corresponding to index IDX in the thread's open files. */
 struct file *get_file(unsigned fd)
 {
-	size_t idx = fd_to_idx(fd);
-	struct thread *cur = thread_current();
-	if (idx >= bitmap_size(cur->open_files_bitmap) ||
-			!bitmap_test(cur->open_files_bitmap, idx))
+	size_t idx = fd - FD_START;
+	struct vector *open_files = &thread_current()->open_files;
+
+	if (idx >= vector_size(open_files) || !vector_get(open_files, idx))
 		return NULL;
-	return vector_get(&cur->open_files, idx);
+	return vector_get(open_files, idx);
 }
 
 /* Terminates Pintos by calling shutdown_power_off(). */
@@ -314,38 +319,36 @@ void open(uint32_t *ret, const void *args)
 	struct file *file = filesys_open(filename);
 	filesys_exit();
 	if (!file) {
-		RETURN(ret, -1);
+		RETURN(ret, FILE_FAILED);
 		return;
 	}
 
-	struct thread *cur = thread_current();
+	struct vector *open_files = &thread_current()->open_files;
+	size_t offset = 0;
 
-	size_t idx = bitmap_first(cur->open_files_bitmap, false);
+	while (offset < vector_size(open_files) && vector_get(open_files, offset))
+		offset++;
 
-	if (idx == BITMAP_ERROR) {
-		if (bitmap_push_back(cur->open_files_bitmap, true)) {
-			if (vector_push_back(&cur->open_files, file)) {
-				RETURN(ret, idx_to_fd(bitmap_size(cur->open_files_bitmap) - 1));
-				return;
-			}
-			vector_pop_back(&cur->open_files);
+	if (offset == vector_size(open_files)) {
+		if (!vector_push_back(open_files, file)) {
+			filesys_enter();
+			file_close(file);
+			filesys_exit();
+			RETURN(ret, FILE_FAILED);
+			return;
 		}
-		filesys_enter();
-		file_close(file);
-		filesys_exit();
-		RETURN(ret, -1);
 	} else {
-		vector_set(&cur->open_files, idx, file);
-		bitmap_set(cur->open_files_bitmap, idx, true);
-		RETURN(ret, idx_to_fd(idx));
+		vector_set(open_files, offset, file);
 	}
+
+	RETURN(ret, offset + FD_START);
 }
 
 /* Returns the size of the file with descriptor FD. */
 void filesize(uint32_t *ret, const void *args)
 {
 	GET_ARG(args, int, fd);
-	if (fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+	if (fd < FD_START) {
 		RETURN(ret, 0);
 		return;
 	}
@@ -370,8 +373,13 @@ void read(uint32_t *ret, const void *args)
 	GET_ARG(args, unsigned, fd);
 	GET_ARG(args, void *, buffer);
 	GET_ARG(args, unsigned, size);
-	if (fd == STDOUT_FILENO) {
-		RETURN(ret, -1);
+	if (!is_user_vaddr(buffer + size - 1))
+		thread_exit();
+
+	if ((off_t)size < 0) {
+		RETURN(ret, FILE_FAILED);
+	} else if (fd < FD_START && fd != STDIN_FILENO) {
+		RETURN(ret, FILE_FAILED);
 	} else if (fd == STDIN_FILENO) {
 		for (size_t offset = 0; offset < size; offset++)
 			((char *)buffer)[offset] = input_getc();
@@ -379,15 +387,33 @@ void read(uint32_t *ret, const void *args)
 	} else {
 		struct file *file = get_file(fd);
 		if (!file) {
-			RETURN(ret, -1);
+			RETURN(ret, FILE_FAILED);
 			return;
 		}
 
-		if (!check_write_user_buffer(buffer, size))
-			thread_exit();
-		filesys_enter();
-		RETURN(ret, file_read(file, buffer, size));
-		filesys_exit();
+		off_t total_bytes_read = 0;
+		do {
+			lock_acquire(&read_write_buffer_lock);
+			off_t bytes_to_read = (total_bytes_read + PGSIZE <= (off_t)size) ?
+																		PGSIZE :
+																		(size - total_bytes_read);
+			filesys_enter();
+			off_t bytes_read = file_read(file, read_write_buffer, bytes_to_read);
+			filesys_exit();
+			for (off_t i = 0; i < bytes_read; i++) {
+				if (!put_user(buffer + total_bytes_read + i,
+											*(read_write_buffer + i))) {
+					lock_release(&read_write_buffer_lock);
+					thread_exit();
+				}
+			}
+			lock_release(&read_write_buffer_lock);
+			total_bytes_read += bytes_read;
+			if (bytes_read < bytes_to_read)
+				break;
+		} while (total_bytes_read < (off_t)size);
+
+		RETURN(ret, total_bytes_read);
 	}
 }
 
@@ -400,23 +426,46 @@ void write(uint32_t *ret, const void *args)
 	GET_ARG(args, int, fd);
 	GET_ARG(args, void *, buffer);
 	GET_ARG(args, unsigned, size);
-	if (fd == STDIN_FILENO) {
-		RETURN(ret, -1);
+
+	if (!is_user_vaddr(buffer + size - 1))
+		thread_exit();
+
+	if (fd < FD_START && fd != STDOUT_FILENO) {
+		RETURN(ret, FILE_FAILED);
 	} else if (fd == STDOUT_FILENO) {
 		putbuf(buffer, size);
 		RETURN(ret, size);
 	} else {
 		struct file *file = get_file(fd);
 		if (!file) {
-			RETURN(ret, -1);
+			RETURN(ret, FILE_FAILED);
 			return;
 		}
 
-		if (!check_read_user_buffer(buffer, size))
-			thread_exit();
-		filesys_enter();
-		RETURN(ret, file_write(file, buffer, size));
-		filesys_exit();
+		off_t total_bytes_written = 0;
+		do {
+			off_t bytes_to_write = (total_bytes_written + PGSIZE <= (off_t)size) ?
+																		 PGSIZE :
+																		 (size - total_bytes_written);
+			lock_acquire(&read_write_buffer_lock);
+			for (off_t i = 0; i < bytes_to_write; i++) {
+				int byte_read = get_user(buffer + total_bytes_written + i);
+				if (byte_read == -1) {
+					lock_release(&read_write_buffer_lock);
+					thread_exit();
+				}
+				*(read_write_buffer + i) = byte_read;
+			}
+			filesys_enter();
+			off_t bytes_written = file_write(file, read_write_buffer, bytes_to_write);
+			filesys_exit();
+			lock_release(&read_write_buffer_lock);
+			total_bytes_written += bytes_written;
+			if (bytes_written < bytes_to_write)
+				break;
+		} while (total_bytes_written < (off_t)size);
+
+		RETURN(ret, total_bytes_written);
 	}
 }
 
@@ -427,7 +476,7 @@ void seek(uint32_t *ret UNUSED, const void *args)
 {
 	GET_ARG(args, unsigned, fd);
 	GET_ARG(args, unsigned, position);
-	if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
+	if (fd < FD_START)
 		return;
 
 	struct file *file = get_file(fd);
@@ -445,12 +494,12 @@ void seek(uint32_t *ret UNUSED, const void *args)
 void tell(uint32_t *ret, const void *args)
 {
 	GET_ARG(args, unsigned, fd);
-	if (fd == STDIN_FILENO || fd == STDOUT_FILENO) {
-		RETURN(ret, -1);
+	if (fd < FD_START) {
+		RETURN(ret, FILE_FAILED);
 	} else {
 		struct file *file = get_file(fd);
 		if (!file) {
-			RETURN(ret, -1);
+			RETURN(ret, FILE_FAILED);
 			return;
 		}
 
@@ -466,20 +515,128 @@ void tell(uint32_t *ret, const void *args)
 void close(uint32_t *ret UNUSED, const void *args)
 {
 	GET_ARG(args, unsigned, fd);
-	if (fd == STDIN_FILENO || fd == STDOUT_FILENO)
+	if (fd < FD_START)
 		thread_exit();
 
-	size_t idx = fd_to_idx(fd);
-	struct thread *cur = thread_current();
-	struct bitmap *b = cur->open_files_bitmap;
+	size_t idx = fd - FD_START;
+	struct vector *open_files = &thread_current()->open_files;
 
-	if (idx >= bitmap_size(b))
+	if (idx >= vector_size(open_files) || !vector_get(open_files, idx))
 		thread_exit();
 
-	if (bitmap_test(b, idx)) {
-		bitmap_set(b, idx, false);
-		filesys_enter();
-		file_close(vector_get(&cur->open_files, idx));
-		filesys_exit();
-	}
+	filesys_enter();
+	file_close(vector_get(open_files, idx));
+	filesys_exit();
+	vector_set(open_files, idx, NULL);
 }
+
+#ifdef VM
+
+/* Task 3 VM syscalls */
+
+/* Memory maps the open file with file descriptor FD to pages starting at
+ * address ADDR.
+ *
+ * Fails if:
+ * - fd is STDIN or STDOUT.
+ * - fd is not a valid open file.
+ * - address is not page aligned.
+ * - page being mapped has already been set.
+ * - address is zero.
+ */
+void mmap(uint32_t *ret, const void *args)
+{
+	GET_ARG(args, unsigned, fd);
+	GET_ARG(args, void *, addr);
+
+	/* Fail if file descriptor is invalid, or address not page aligned. */
+	if (fd < FD_START || !addr || pg_ofs(addr) != 0) {
+		RETURN(ret, MAP_FAILED);
+		return;
+	}
+
+	/* Fail if file invalid. */
+	struct file *file_to_map = get_file(fd);
+	if (!file_to_map) {
+		RETURN(ret, MAP_FAILED);
+		return;
+	}
+
+	/* Fail if file length is zero. */
+	off_t length = file_length(file_to_map);
+	if (!length) {
+		RETURN(ret, MAP_FAILED);
+		return;
+	}
+
+	/* fail if unable to create a new list to contain the mapped pages. */
+	struct list *user_mmap_pages = malloc(sizeof(struct list));
+	if (!user_mmap_pages) {
+		RETURN(ret, MAP_FAILED);
+		return;
+	}
+	list_init(user_mmap_pages);
+
+	struct thread *cur = thread_current();
+
+	mapid_t map_id = 0;
+	while (map_id < (mapid_t)vector_size(&cur->mmapings) &&
+				 vector_get(&cur->mmapings, map_id))
+		map_id++;
+
+	if (map_id == (mapid_t)vector_size(&cur->mmapings) &&
+			!vector_push_back(&cur->mmapings, NULL)) {
+		free(user_mmap_pages);
+		RETURN(ret, MAP_FAILED);
+		return;
+	}
+
+	/* load each page, if any page overlaps an already set page, or is  */
+	for (off_t offset = 0; offset < length; offset += PGSIZE, addr += PGSIZE) {
+		if (pagedir_get_page_type(cur->pagedir, addr) == NOTSET) {
+			uint16_t size = offset + PGSIZE > length ? length - offset : PGSIZE;
+			if (!mmap_register(file_to_map, offset, size, true, cur->pagedir, addr,
+												 user_mmap_pages)) {
+				unregister_all_mmaps(user_mmap_pages);
+				RETURN(ret, MAP_FAILED);
+				return;
+			}
+		} else {
+			unregister_all_mmaps(user_mmap_pages);
+			RETURN(ret, MAP_FAILED);
+			return;
+		}
+	}
+	vector_set(&cur->mmapings, map_id, user_mmap_pages);
+	RETURN(ret, map_id);
+}
+
+/* Unmap a memory mapped file. If there is no mmap for that MMAPD_ID then
+ * terminate the process.
+ */
+void munmap(uint32_t *ret UNUSED, const void *args)
+{
+	GET_ARG(args, mapid_t, mmap_id);
+
+	struct vector *mmapings = &thread_current()->mmapings;
+	if (mmap_id >= (mapid_t)vector_size(mmapings))
+		thread_exit();
+
+	struct list *user_mmap_pages = vector_get(mmapings, mmap_id);
+	if (!user_mmap_pages)
+		thread_exit();
+
+	unregister_all_mmaps(user_mmap_pages);
+	vector_set(mmapings, mmap_id, NULL);
+}
+
+/* Unregister all user_mmaped pages from the list USER_MMAPS
+ * and free the list.
+ */
+static void unregister_all_mmaps(struct list *user_mmaps)
+{
+	while (!list_empty(user_mmaps))
+		mmap_unregister(mmap_list_entry(list_front(user_mmaps)));
+	free(user_mmaps);
+}
+#endif

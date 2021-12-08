@@ -63,7 +63,6 @@ void donation_thread_block(struct thread *thread, struct lock *lock)
 		}
 
 		lock = thread->donee;
-		old_level = intr_disable();
 		donation_thread_update_priority(thread);
 		donation_thread_update_donation(thread);
 	}
@@ -81,7 +80,7 @@ void donation_thread_unblock(struct thread *thread)
 {
 	enum intr_level old_level;
 	old_level = intr_disable();
-	;
+
 	ASSERT(thread->donee);
 	struct lock *lock = thread->donee;
 	ASSERT(!lock->donee);

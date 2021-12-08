@@ -21,6 +21,14 @@
 #include "userprog/syscall.h"
 #include "userprog/tss.h"
 
+#ifdef VM
+
+#include "vm/swap.h"
+#include "vm/mmap.h"
+#include "vm/lazy.h"
+
+#endif
+
 /* The initial size of the bitmap of open files */
 #define OPEN_FILES_SIZE 4
 
@@ -40,7 +48,6 @@ static inline bool test_and_set(bool *flag);
 static inline uintptr_t word_align(uintptr_t ptr);
 static bool setup_stack(void **esp, uint16_t stack_size, uint8_t *kpage);
 static bool stack_page_setup(struct process_info *child_data);
-// static bool child_data_setup(struct process_info *child_data);
 static bool strtok_setup(const char *command, char **command_tok_ptr);
 static void put_string_on_stack(struct process_info *child_data, int *argc,
 																char **argv, const char *token);
@@ -49,7 +56,11 @@ static bool populate_stack(struct process_info *child_data,
 
 bool stack_page_setup(struct process_info *child_data)
 {
+#ifdef VM
+	child_data->stack_template = frame_get();
+#else
 	child_data->stack_template = palloc_get_page(PAL_USER);
+#endif
 	if (!child_data->stack_template)
 		return false;
 	child_data->stack_size = 0;
@@ -178,7 +189,6 @@ tid_t process_execute(const char *command)
 						struct child_manager *child = child_data.parent;
 
 						/* Create a new thread to execute the process. */
-
 						tid_t tid;
 						tid = thread_create(file_name_str, PRI_DEFAULT, start_process,
 																&child_data);
@@ -201,6 +211,7 @@ tid_t process_execute(const char *command)
 			}
 			palloc_free_page(child_data.stack_template);
 		}
+		list_remove(&child_data.parent->elem);
 	}
 	free(child_data.parent);
 	return TID_ERROR;
@@ -229,11 +240,20 @@ static void start_process(void *data_ptr)
 					(char *)(data->stack_template + PGSIZE -
 									 ((uint8_t *)PHYS_BASE - (uint8_t *)file_name_user_ptr));
 
-	bool success = load(&if_.eip, file_name);
+#ifdef VM
+	list_init(&thread_current()->exec_file_mmapings);
+#endif
+	bool success = true;
+	if (!load(&if_.eip, file_name)) {
+		palloc_free_page(data->stack_template);
+		success = false;
+	}
+
 	/* Attempt to set up the user stack. If it fails, then we free the
 	 * stack template.
 	 */
-	if (!setup_stack(&if_.esp, data->stack_size, data->stack_template)) {
+	if (success &&
+			!setup_stack(&if_.esp, data->stack_size, data->stack_template)) {
 		palloc_free_page(data->stack_template);
 		success = false;
 	}
@@ -243,8 +263,13 @@ static void start_process(void *data_ptr)
 	 * of process_execute
 	 */
 	thread_current()->parent = data->parent;
-	vector_init(&thread_current()->open_files);
-	thread_current()->open_files_bitmap = bitmap_create(0);
+	if (success && !vector_init(&thread_current()->open_files))
+		success = false;
+
+#ifdef VM
+	if (success && !vector_init(&thread_current()->mmapings))
+		success = false;
+#endif
 
 	/* Informing the process_execute that we have set our new tid. */
 	if (success)
@@ -334,29 +359,47 @@ void process_exit(void)
 	if (pd) {
 		printf("%s: exit(%d)\n", cur->name, cur->parent->exit_status);
 
+		/* Close the open files */
+		struct file *open_file;
+		for (size_t offset = 0; offset < vector_size(&cur->open_files); offset++) {
+			open_file = vector_get(&cur->open_files, offset);
+			if (open_file) {
+				filesys_enter();
+				file_close(open_file);
+				filesys_exit();
+			}
+		}
+
+		/* Free the file management system */
+		vector_destroy(&cur->open_files);
+#ifndef VM
+		/* Close the code file */
+		filesys_enter();
+		file_close(cur->exec_file);
+		filesys_exit();
+#else
+		/* Destroy all mmappings */
+		for (size_t mmap_index = 0; mmap_index < vector_size(&cur->mmapings);
+				 mmap_index++) {
+			struct list *mmaping_list = vector_get(&cur->mmapings, mmap_index);
+			if (mmaping_list) {
+				while (!list_empty(mmaping_list))
+					mmap_unregister(mmap_list_entry(list_front(mmaping_list)));
+				free(mmaping_list);
+			}
+		}
+		vector_destroy(&cur->mmapings);
+
+		while (!list_empty(&cur->exec_file_mmapings))
+			mmap_unregister(mmap_list_entry(list_front(&cur->exec_file_mmapings)));
+#endif
+
 		/* Stop the parent from waiting */
 		sema_up(&cur->parent->wait_sema);
 
 		/* Free the parent manager of the thread */
 		if (test_and_set(&cur->parent->release))
 			free(cur->parent);
-
-		/* Close the open files */
-		for (size_t offset = 0; offset < vector_size(&cur->open_files); offset++)
-			if (bitmap_test(cur->open_files_bitmap, offset)) {
-				filesys_enter();
-				file_close(vector_get(&cur->open_files, offset));
-				filesys_exit();
-			}
-
-		/* Free the file management system */
-		bitmap_destroy(cur->open_files_bitmap);
-		vector_destroy(&cur->open_files);
-
-		/* Close the code file */
-		filesys_enter();
-		file_close(cur->exec_file);
-		filesys_exit();
 
 		/* Correct ordering here is crucial.  We must set
 		 * cur->pagedir to NULL before switching page directories,
@@ -462,9 +505,17 @@ struct Elf32_Phdr {
 #define PF_R 4 /* Readable. */
 
 static bool validate_segment(const struct Elf32_Phdr *, struct file *);
-static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
+#ifdef VM
+static bool load_segment(struct file *file, off_t ofs, uint8_t *vpage,
+												 uint32_t read_bytes, uint32_t zero_bytes,
+												 bool writable, bool writability_pass);
+static bool load_page(struct file *file, off_t ofs, uint8_t *vpage);
+static bool prepare_page(uint8_t *vpage, bool writable, uint16_t read_bytes);
+#else
+static bool load_segment(struct file *file, off_t ofs, uint8_t *vpage,
 												 uint32_t read_bytes, uint32_t zero_bytes,
 												 bool writable);
+#endif
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *EIP
@@ -477,8 +528,6 @@ bool load(void (**eip)(void), char *file_name)
 	struct thread *t = thread_current();
 	struct Elf32_Ehdr ehdr;
 	struct file *file = NULL;
-	off_t file_ofs;
-	int i;
 
 	/* Allocate and activate page directory. */
 	t->pagedir = pagedir_create();
@@ -510,17 +559,32 @@ bool load(void (**eip)(void), char *file_name)
 	}
 	filesys_exit();
 
-	/* Read program headers. */
-	file_ofs = ehdr.e_phoff;
-	for (i = 0; i < ehdr.e_phnum; i++) {
+	/* Installing all the segments based on the ELF program headers */
+	filesys_enter();
+	if ((off_t)(ehdr.e_phoff + ehdr.e_phnum * sizeof(struct Elf32_Phdr)) >
+			file_length(file)) {
+		filesys_exit();
+		goto done;
+	}
+	filesys_exit();
+
+	/* First loading pass with VM:
+	 * - determine which pages need to be writable and which read-only
+	 * - use the zeroed pages as an indication, therefore we don't need to
+	 *   set them up later
+	 * - store the maximum length of mapping for each page in the auxilary part
+	 *   of the zeroed entry, so that it can be used in a later pass to set the
+	 *   proper length of mapping
+	 * - validate all load headers so that we don't need to do that later
+	 * - validate the types of the headers so that we don't have to do that later
+	 *
+	 * Loading without VM:
+	 * - load the segments in a usual order
+	 */
+	off_t file_ofs = ehdr.e_phoff;
+	for (int i = 0; i < ehdr.e_phnum; i++) {
 		struct Elf32_Phdr phdr;
 
-		filesys_enter();
-		if (file_ofs < 0 || file_ofs > file_length(file)) {
-			filesys_exit();
-			goto done;
-		}
-		filesys_exit();
 		filesys_enter();
 		file_seek(file, file_ofs);
 		filesys_exit();
@@ -532,7 +596,6 @@ bool load(void (**eip)(void), char *file_name)
 		}
 		filesys_exit();
 
-		file_ofs += sizeof phdr;
 		switch (phdr.p_type) {
 		case PT_NULL:
 		case PT_NOTE:
@@ -566,20 +629,86 @@ bool load(void (**eip)(void), char *file_name)
 					read_bytes = 0;
 					zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
 				}
+#ifdef VM
+				if (!load_segment(file, file_page, (void *)mem_page, read_bytes,
+													zero_bytes, writable, true))
+					goto done;
+#else
 				if (!load_segment(file, file_page, (void *)mem_page, read_bytes,
 													zero_bytes, writable))
 					goto done;
+#endif
 			} else {
 				goto done;
 			}
 			break;
 		}
+
+		file_ofs += sizeof phdr;
 	}
+
+#ifdef VM
+	/* Second loading pass (VM only)
+	 *  - no need to validate pages since it has been done earlier
+	 *  - no need to check for unsupported section types, since it has been done
+	 *    in the first pass
+	 *  - for each page get the length of the mapping and the writability from the
+	 *    data saved from the first pass, and set the page accordingly (or not if
+	 *    the length of mapping is 0, in which case the pte is already set to
+	 *    lazy-zeroed)
+	 */
+	file_ofs = ehdr.e_phoff;
+
+	for (int i = 0; i < ehdr.e_phnum; i++) {
+		struct Elf32_Phdr phdr;
+
+		filesys_enter();
+		file_seek(file, file_ofs);
+		filesys_exit();
+
+		filesys_enter();
+		if (file_read(file, &phdr, sizeof phdr) != sizeof phdr) {
+			filesys_exit();
+			goto done;
+		}
+		filesys_exit();
+
+		if (phdr.p_type == PT_LOAD) {
+			bool writable = (phdr.p_flags & PF_W) != 0;
+			uint32_t file_page = phdr.p_offset & ~PGMASK;
+			uint32_t mem_page = phdr.p_vaddr & ~PGMASK;
+			uint32_t page_offset = phdr.p_vaddr & PGMASK;
+			uint32_t read_bytes, zero_bytes;
+			if (phdr.p_filesz > 0) {
+				/* Normal segment.
+				 * Read initial part from disk and zero the rest.
+				 */
+				read_bytes = page_offset + phdr.p_filesz;
+				zero_bytes =
+								(ROUND_UP(page_offset + phdr.p_memsz, PGSIZE) - read_bytes);
+			} else {
+				/* Entirely zero.
+				 * Don't read anything from disk.
+				 */
+				read_bytes = 0;
+				zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
+			}
+			if (!load_segment(file, file_page, (void *)mem_page, read_bytes,
+												zero_bytes, writable, false))
+				goto done;
+		}
+		file_ofs += sizeof phdr;
+	}
+#endif
 
 	/* Start address. */
 	*eip = (void (*)(void))ehdr.e_entry;
 
+#ifdef VM
+	file_close(file); /* We keep the writability in mmapings */
+#else
 	t->exec_file = file;
+#endif
 	return true;
 done:
 	filesys_enter();
@@ -645,31 +774,38 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file)
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
- * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
+ * VPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
  * memory are initialized, as follows:
  *
- * - READ_BYTES bytes at UPAGE must be read from FILE
+ * - READ_BYTES bytes at VPAGE must be read from FILE
  * starting at offset OFS.
  *
- * - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
+ * - ZERO_BYTES bytes at VPAGE + READ_BYTES must be zeroed.
  *
  * The pages initialized by this function must be writable by the
  * user process if WRITABLE is true, read-only otherwise.
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs.
+ *
+ * (VM only) Using WRITABILITY_PASS check whether it is the first pass over the
+ * virtal pages, which only sets the helper data about them, or the second
+ * pass, where we set the actual page table entries based on that aggregate
+ * data.
  */
-static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
+#ifdef VM
+static bool load_segment(struct file *file, off_t ofs, uint8_t *vpage,
+												 uint32_t read_bytes, uint32_t zero_bytes,
+												 bool writable, bool writability_pass)
+#else
+static bool load_segment(struct file *file, off_t ofs, uint8_t *vpage,
 												 uint32_t read_bytes, uint32_t zero_bytes,
 												 bool writable)
+#endif
 {
 	ASSERT((read_bytes + zero_bytes) % PGSIZE == 0);
-	ASSERT(pg_ofs(upage) == 0);
+	ASSERT(pg_ofs(vpage) == 0);
 	ASSERT(ofs % PGSIZE == 0);
-
-	filesys_enter();
-	file_seek(file, ofs);
-	filesys_exit();
 
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Calculate how to fill this page.
@@ -679,9 +815,20 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
+#ifdef VM
+		/* Dispatch of the data aggregation/page loading passes */
+		if (writability_pass) {
+			if (!prepare_page(vpage, writable, page_read_bytes))
+				return false;
+		} else {
+			if (!load_page(file, ofs, vpage))
+				return false;
+		}
+		ASSERT(pagedir_get_page_type(thread_current()->pagedir, vpage) != NOTSET);
+#else
 		/* Check if virtual page already allocated */
 		struct thread *t = thread_current();
-		uint8_t *kpage = pagedir_get_page(t->pagedir, upage);
+		uint8_t *kpage = pagedir_get_page(t->pagedir, vpage);
 
 		if (!kpage) {
 			/* Get a new page of memory. */
@@ -690,39 +837,106 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
 				return false;
 
 			/* Add the page to the process's address space. */
-			if (!install_page(upage, kpage, writable))
+			if (!install_page(vpage, kpage, writable))
 				return false;
 		}
 
 		/* Load data into the page. */
 		filesys_enter();
+		file_seek(file, ofs);
 		if (file_read(file, kpage, page_read_bytes) != (int)page_read_bytes) {
 			filesys_exit();
 			return false;
 		}
 		filesys_exit();
 		memset(kpage + page_read_bytes, 0, page_zero_bytes);
+#endif
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
-		upage += PGSIZE;
+		vpage += PGSIZE;
+		ofs += PGSIZE;
 	}
 	return true;
 }
+
+#ifdef VM
+
+/* Aggregates the data in the first pass of loading the executable:
+ *  - stores the writability of the page as whether the zeroed page is writable
+ *  - stores the length of the max potential mmaping of that page
+ */
+static bool prepare_page(uint8_t *vpage, bool writable, uint16_t read_bytes)
+{
+	uint32_t *pd = thread_current()->pagedir;
+	if (pagedir_get_page_type(pd, vpage) != NOTSET) {
+		writable |= pagedir_is_zeroed_writable(pd, vpage);
+		const uint16_t old_read_bytes = pagedir_get_zeroed_aux(pd, vpage);
+		read_bytes = old_read_bytes <= read_bytes ? read_bytes : old_read_bytes;
+	}
+	return pagedir_set_zeroed_page(pd, vpage, writable, read_bytes);
+}
+
+/* Sets up the page based on the first loading pass for the second pass:
+ *  - if the page has already been loaded to something other than lazy-zeroed,
+ *    then skip it
+ *  - if the page does not need to load anything from the file, then it is
+ *	  already set as lazy zeroed, so skip it
+ *  - if it is writable, then load it lazily as a swappable page; otherwise,
+ *    mmap it
+ */
+static bool load_page(struct file *file, off_t ofs, uint8_t *vpage)
+{
+	struct thread *t = thread_current();
+
+	if (pagedir_get_page_type(t->pagedir, vpage) != ZEROED)
+		return true;
+
+	const int16_t read_bytes = pagedir_get_zeroed_aux(t->pagedir, vpage);
+	if (!read_bytes) /* Already set to zeroed in the first pass */
+		return true;
+
+	if (pagedir_is_zeroed_writable(t->pagedir, vpage)) {
+		struct lazy_load *lazy = create_lazy_load(file, ofs, read_bytes);
+		if (!lazy)
+			return false;
+
+		if (!pagedir_set_lazy_page(t->pagedir, vpage, lazy))
+			NOT_REACHED(); /* Since we already registered that pte */
+
+		return true;
+	} else {
+		return mmap_register(file, ofs, read_bytes, false, t->pagedir, vpage,
+												 &t->exec_file_mmapings);
+	}
+}
+#endif
 
 /* Create a minimal stack by mapping a zeroed page at the top of
  * user virtual memory.
  */
 static bool setup_stack(void **esp, uint16_t stack_size, uint8_t *kpage)
 {
-	bool success = false;
-	if (kpage) {
-		success = install_page(((uint8_t *)PHYS_BASE) - PGSIZE, kpage, true);
-		if (success)
-			*esp = PHYS_BASE - stack_size;
+	if (!kpage)
+		return false;
+	uint8_t *next_stack_page = PHYS_BASE - PGSIZE;
+	if (!install_page(next_stack_page, kpage, true))
+		return false;
+	*esp = PHYS_BASE - stack_size;
+#ifdef VM
+	frame_unlock_swappable(thread_current()->pagedir, next_stack_page, kpage);
+	for (next_stack_page -= PGSIZE; next_stack_page >= (uint8_t *)STACK_BOTTOM;
+			 next_stack_page -= PGSIZE) {
+		if (pagedir_get_page_type(thread_current()->pagedir, next_stack_page) !=
+				NOTSET)
+			return false;
+		if (!pagedir_set_zeroed_page(thread_current()->pagedir, next_stack_page,
+																 true, 0))
+			return false;
 	}
-	return success;
+#endif
+	return true;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

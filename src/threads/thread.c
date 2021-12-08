@@ -401,13 +401,16 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 /* If the current thread's priority is no longer the highest, yield. */
 void thread_priority_yield(void)
 {
+	enum intr_level old = intr_disable();
 	if (num_ready_threads > 0 &&
 			ready_front()->priority > thread_current()->priority) {
+		intr_set_level(old);
 		if (intr_context())
 			intr_yield_on_return();
 		else
 			thread_yield();
 	}
+	intr_set_level(old);
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled

@@ -123,12 +123,15 @@ struct thread {
 #endif
 	uint32_t *pagedir; /* Page directory. */
 	struct vector open_files; /* Vector of open file structs */
-	struct bitmap *open_files_bitmap; /* Which entries in open_files are taken */
 	struct list children; /* List of child processes */
 	struct child_manager *parent; /* Struct managing the child process */
+#ifndef VM
 	struct file *exec_file; /* The program file the thread is running */
+#else
+	struct vector mmapings; /* Maps mmap ids to malloced lists of pages is uses */
+	struct list exec_file_mmapings; /* list of executable pages' user_mmaps. */
 #endif
-
+#endif
 	/* Owned by thread.c. */
 	unsigned magic; /* Detects stack overflow. */
 };
