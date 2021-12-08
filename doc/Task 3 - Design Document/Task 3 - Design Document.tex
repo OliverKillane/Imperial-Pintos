@@ -51,6 +51,10 @@
 	\includegraphics[#1]{#2}
 \end{center}}
 
+% Shorter bullet point and numbered lists
+\newcommand{\compitem}[1]{\begin{itemize}\setlength\itemsep{-0.5em}#1\end{itemize}}
+\newcommand{\compenum}[1]{\begin{enumerate}\setlength\itemsep{-0.5em}#1\end{enumerate}}
+
 \begin{document}
 	\maketitle
 
@@ -68,7 +72,7 @@
 	
 	\section*{Preliminaries}
 		\subsection*{Latex Formatting}
-		To make this document easier to read, we have implemented a consistent style:
+		To make this document more readable, we have a consistent style:
 		\subsubsection*{D4 (5 marks)}
 		\question{This is the question's text\dots
 		\\
@@ -81,7 +85,7 @@
 			\item Constants and values set in define such as \const{BINARY\_POINT} and \const{PRI\_MAX}.
 			\item Files such as \file{thread.c} and \file{fixed-point.h}.
 		\end{itemize}
-		We also include code directly from this repository, so the contents, line 
+		We also include code directly from the repository, so the contents, line 
 		numbers and file titles all match their respective places.
 		\pintoscode{98}{110}{\file{syscall.c}}{/../userprog/syscall.c}
 		This makes our document quicker and easier to read and mark.
@@ -91,38 +95,33 @@
 		of the tools we've used include the following:
 
 			\subsubsection*{Continuous Integration}
-			We've set up a Gitlab's CI to run the test suite on a custom Docker Image 
-			designed for PintOS. This runs the applicable tests for
-			each of the parts we've implemented. If any of these tests fail, then the 
-			branch cannot be merged into the master branch until the
-			necessary changes have been made. This ensures that any "quick changes" 
-			made to the master branch don't accidentally cause the tests
-			to fail unexpectedly.
+			We have set up Gitlab's CI to run the test suite on a custom Docker image 
+			designed for PintOS. This runs tests for
+			each of the parts we have implemented. If any of these tests fail, then the 
+			branch cannot merge into the master branch. This ensures that any "quick changes" 
+			made to the master branch do not break the code base.
 			
 			\subsubsection*{Linter}
 			In order to enforce a single code-style across all of our changes, we 
 			extended the makefile to include a built-in linter. The CI pipeline also 
 			includes a linting pass over all files that we've edited throughout the 
 			project. The linter we decided to use was the checkpatch linter, which 
-			follows the linux kernel style guide. We decided upon this because the 
-			linux kernel's style guide most closely follows the style used throughout 
-			the PintOS codebase. 
+			we sourced from the linux codebase 
+			https://github.com/torvalds/linux/blob/master/scripts/checkpatch.pl. 
+			It follows the linux kernel style.
 			
 			\subsubsection*{Formatting Scripts}
-			To pair with the linter, we've used a clang-formatter paired with a custom 
-			python script (see pintos\_16/reformat.py) to reformat the codebase. This 
-			speeds-up the time otherwise wasted appeasing the linter and further ensures
-			a common code style.
+			Paired with the linter, we have used the clang-formatter and a custom 
+			python script (see pintos\_16/reformat.py) to reformat the codebase to 
+			conform with the chosen style. 
 
 			\subsubsection*{Live Code Sharing}
-			For tasks 2 and 3 we learnt from difficulties in integrating 
-			separately developed sections of code by adopting a more 
-			collaborative approach.
+			For tasks 2 and 3 we have adopted a more collaborative approach.
 			\\
-			\\ By having two team members working on a problem at a time, 
-			working using VSCode liveshare to work jointly, we found far more 
-			bugs were caught early, code quality improved and we 
-			could make design changing decisions more quickly.
+			\\ By having pairs working on a problem simultaneously using the
+			VSCode liveshare functionality, we found that more bugs were caught early, 
+			our code quality has improved and we could make design changing decisions 
+			quicker.
 
 	\section*{Page Table/Frame Management}
 		\subsection*{Data Structures}
@@ -131,23 +130,106 @@
 				`struct' or `struct' member, global or static variable, `typedef'
 				, or enumeration that relates to your supplemental page table 
 				and frame table. Identify the purpose of each in roughly 25 words.}
-				%Oli
+				
+
+				\centerimage{width=\textwidth}{page table entry.png}
+				We decided not to use a supplemental page table, because we deemed
+				it an unnecessary waste of memory and potential speed. We found out
+				that, by using a type of huffmann coding, we can fit in the necessary
+				data inside the paged-out entries in the page table. In case they are
+				paged in, we do not need to worry about them since we are not going to
+				page fault on them during normal operation. So, assuming a pte is
+				paged-out, we have several states that it can be in:
+				\compitem{
+					\item Swapped entry
+							\\In that case, in the remaining bits that are not encoding,
+							we keep a swap frame id which is going to be used when paging
+							the entry in. Because we can only store up to 29 bits in this
+							way, we are limited in terms of the maximum swap size to 1TB,
+							which should still be plenty compared to the maximum of 64MB
+							of RAM in the system.
+					\item Lazy-zeroed entry
+							\\In that case, the first remaining bit that is not encoding
+							is used to figure out whether the zeroed page should be
+							writable or not. The remaining bits are used for some auxiliary
+							data that the thread can use when setting up the process.
+							In fact, we use this space in our setup in order to keep the
+							maximum mapping size for lazy loading of frames.
+					\item Mmaped or lazy-loading entry
+							\\ In that case, we have 30 bits left over for storing the
+							pointer to the structs that manage the mmaped or lazy-loaded
+							entries. Because both structs are 4 bytes aligned, and thanks
+							to the ISO specification that ensures that, even though those
+							structs are malloced, their pointers will be 4 bytes aligned as well,
+							we can discard the leading 2 bits in those pointers and fit exactly in
+							the remaining space in the pte. As far as the dispatch between the
+							two structs goes, each of them has a boolean field as the first item in
+							them, based on which we can determine to which struct we are holding a
+							pointer to. This adds at most 4 bytes due to the alignment, but is
+							still outweighted by not having to allocate a supplementary page table.
+				}
 				
 				% frame struct (fte)
-				\pintosfile{10}{22}{frame.c}
-								
+				\pintosfile{11}{22}{frame.c}
+				\begin{center}
+					\begin{tabular}{l p{10cm}}
+						\vspace*{2mm}
+						\var{used\_elem} & This \struct{list\_elem} is used to handle the 
+						frame table entry within the \struct{used\_queue}. \\ \vspace*{2mm}
+
+						\var{is\_swappable}  & This boolean determines if the frame is to be written to 
+						swap space (stack pages and writeable lazy-loaded) with \file{swap.\{c,h\}} 
+						functions, or back to the file system (mmap pages). \\ \vspace*{2mm}
+
+						\const{union}  & This is a union of the data required for both swappable 
+						and mmaped pages.  \\ \vspace*{2mm}
+
+						\var{shared\_mmap}  & A pointer to the 
+						struct{shared\_mmap} struct that owns the frame. The file, offset, 
+						length and other data required for reading from and to disk as well 
+						as the page table entries using the \struct{shared\_mmap} are stored
+						here. (For mmapped pages)
+						\\ \vspace*{2mm}
+
+						\var{pd} and \var{vpage}  & The page directory and virtual page 
+						within that directory using the frame. (For swappable pages) 
+						\\ \vspace*{2mm}
+					\end{tabular}
+				\end{center}
+				
 				% frame table (*ftes)
 				\pintosfile{38}{38}{frame.c}
+				An array based table of all frame table entry (\struct{fte}) structs. 
+				This is allocated once from the kernel pool in the initialisation of the 
+				frame system \fun{frame\_init}.
+				\\
+				\\ Frames are accessed using kernel addresses (This is very fast and 
+				simple to lookup).
+				\[\text{frame table index} = \cfrac{\text{frame kernel address} - 
+				\text{user pool base kernel address}}{\text{\const{PGSIZE} - 
+				page size is currently 4096 bytes}}\]
 				
 				% user_base
-				
-				% frame table diagram
-				
+				\pintosfile{41}{41}{frame.c}
+				This is used for the translations of kernel page addresses to frame 
+				table indexes.
 				
 				% used_queue
-				\pintosfile{}{}{frame.c}
+				\pintosfile{53}{53}{frame.c}
+				This is a circular queue of frames currently being used, that are 
+				unlocked (can	be evicted). Our second chance page replacement algorithm 
+				runs on this queue.
+
 				% used_queue lock
+				\pintosfile{44}{44}{frame.c}
+				This synchronizes access to the \struct{used\_queue}.
+
 				% unlocked_frames semaphore
+				\pintosfile{50}{50}{frame.c}
+				This is used to ensure free or unlocked frames are available in \fun{frame\_get}.
+				If there are no free frames available from palloc and there
+				are no unlocked frames in the \struct{used\_queue} that can be page replaced,
+				downing this semaphore will result in a wait until one is available.
 				
 				% used_queue diagram
 				% pte explainer
@@ -157,29 +239,82 @@
 			\subsubsection*{A2 (2 mark)}
 				\question{Describe your code for finding the frame (if any) or 
 				other location that contains the data of a given page.}
-				Our code for finding a frame uses a second-chance algorithm.
+				\\
+				\\ Our code for finding a frame uses a second-chance algorithm.
 				We implement getting the frame by first ensuring, with a
-				semaphore, that there is at least one unlocked frame in the framing
-				system. Then, once that succeeds, we know that there is either
+				semaphore, that there is at least one unlock frame in the framing
+				system or a free frame in the palloc system. 
+				Then, once that succeeds, we know that there is either
 				a free frame in the palloc system or an unlocked used frame in
 				the second-chance queue. Then, after having checked that there
 				are no free frames in the palloc system, we acquire the lock
 				for the second-chance queue. Subsequently, we put the items in
-				front of the queue to its back 
+				front of the queue to its back and reset their accessed bits
+				in order to implement the circular queue behavior. We do that
+				until we encounter an item which has not been accessed.
+				Finally, we evict that item either to the swap partition or to
+				the filesystem (depending on whether it is mmaped or swapped)
+				and return it.
 	
 			\subsubsection*{A3 (2 mark)}
 				\question{How have you implemented sharing of read only pages?}
+				For sharing the read-only pages we use the same system as for
+				sharing the pages for mmaping. The only difference is that
+				here we block the writes to the file opened in the shared mmaped
+				page struct, as well as mark the pages loaded using it as
+				read-only. For loading of the writeable pages we lazy-load
+				them separately, also denying access to writing to that file
+				before the lazy-load has been performed.
 			
 		\subsection*{Synchronization}
 			\subsubsection*{A4 (2 mark)}
 				\question{When two user processes both need a new frame at 
 				the same time, how are races avoided? You should consider both 
 				when there are and are not free frames available in memory.}
+				
 			
 		\subsection*{Rationale}
 			\subsubsection*{A5 (2 mark)}
 				\question{Why did you choose the data structure(s) that you did for 
 				representing the supplemental page table and frame table?}
+
+				Design Decisions
+				\\ \begin{minipage}[t]{0.45\textwidth}
+					\centerline{Array based, single allocation table}
+					\textcolor{green}{
+
+						
+						\compitem{
+							\item Requires only one memory allocation.
+							\item Very fast lookup usiong pointer arithmetic.
+							\item Impossible to fail on allocating a new frame.
+						}
+					}
+					\textcolor{red}{
+						\compitem{
+							\item All frame table entries allocated, even when very few are being used (higher memory usage).
+						}
+					}
+				\end{minipage}
+				\hfill
+				\begin{minipage}[t]{0.45\textwidth}
+					\centerline{Hashmap with dynamically allocated entries}
+					\textcolor{green}{
+						\compitem{
+							\item Only uses memory for frames being used.
+						}
+					}
+					\textcolor{Red}{
+						\compitem{
+							\item Higher maximum memory usage when all frames are in memory, must also store hashmap.
+							\item Slower lookup (requires hashing, potentially iterating through buckets in the hashmap).
+							\item New frames require multiple allocations (for the frame itself, and the hashmap).
+							\item Frame allocation can fail.
+							\item Hashmap insertion can require malloc, failure degrades hashmap performance.
+							\item Freeing frames is slower (requires a call to \fun{free} for the table entry).
+						}
+					}
+				\end{minipage}
 				
 	\section*{Paging To And From Disk}
 		\subsection*{Data Structures}
@@ -188,41 +323,30 @@
 				`struct' member, global or static variable, `typedef', or enumeration 
 				that relates to your swap table. Identify the purpose of each in roughly
 				25 words.}
-		
-		\pintosfile{9}{9}{swap.h}
-			The \var{swapid\_t} typedef signifies that we are idexing in the
-			swap table.
-		
-		\pintosfile{11}{11}{swap.h}
-			\var{swap\_frame\_access\_funcs} is declared as extern in swap.h so that it is
-			accessible outside of the file. This struct contains the function pointers used to
-		  utilize strategies when swapping between different types of frames.
+				
+				% swapid_t
+				\pintosfile{9}{9}{swap.h}
+					THIS DESCRIPTION IS BAD SOMEONE REPLACE IT WHO KNOWS WHAT IT ACTUALLY DOES
+					The \var{swapid\_t} typedef signifies that we are indexing in the
+					swap table.
+				
+				% is_free_tree
+				\pintosfile{12}{12}{swap.c}
+					We decided to use an interval tree for determining if a swap slot is empty.
+					For a swap space of size \var{n} swaps (where \var{n} is twice the
+					the number of real swap slots rounded up to the nearest power of 2), 
+					the bitmap for the interval tree is
+					of size $2*\var{n}-1$. The interval tree allows us to find a free page in 
+					$log(\var{n})$ steps.
+				
+				% is_writeable
+				\pintosfile{13}{13}{swap.c}
+					This is a simple bitmap for checking if the swapped frame is writable or not. 
+					It is indexed in constant time.
 
-
-		\pintosfile{22}{26}{swap.c}
-			Every frame has a \var{frame\_access\_func} struct. This contains
-			the policies for evicting the frame, and resetting and fetching the accessed bit. 
-			This implements the strategy pattern, allowing us to have different policies
-			depending on the frames use.
-		
-		
-		\pintosfile{30}{30}{swap.c}
-      We decided to use an interval tree for indicating if a swap slot is empty.
-      For a swap space of size \var{n} swaps (\var{n} is twice the
-      the number of real swap slots rounded up to the nearest power of 2), the bitmap for the interval tree is
-      of size $2*\var{n}-1$. The interval tree allows us to find a free page in 
-      $log(\var{n})$ steps.
-		
-		\pintosfile{31}{31}{swap.c}
-      This is a simple bitmap for checking if the swapped frame is writable or not. 
-			It is indexed in constant time.
-
-		\pintosfile{33}{33}{swap.c}
-      This is a pointer to the block that contains the swapped frames. This is initialized
-      on start-up. It is of a variable size determined by the size of the swap disk.
-
-		\pintosfile{35}{35}{swap.c}
-		  A simple lock to synchronise the \var{is\_free\_tree} during access.
+				% interval_tree_lock
+				\pintosfile{15}{15}{swap.c}
+					A simple lock to synchronise the \var{is\_free\_tree} during access.
 		
 		\subsection*{Algorithms}
 			\subsubsection*{B2 (2 mark)}
@@ -284,12 +408,12 @@
 					\begin{tabular}{l p{10cm}}
 							\vspace*{2mm}
 							\var{mmap\_system\_elem}  & A \struct{hash\_elem} that is the elem for \struct{mmaps} \\ \vspace*{2mm}
-							\var{*file}         			& A \struct{file} that is the write-back file. This is also used for indenficication \\ \vspace*{2mm}
-							\var{file\_offset} 				& A \const{off\_t} that is the offset from the file that we are mapping \\ \vspace*{2mm}
-							\var{length}          		& An \const{int16\_t} that is the length of the chunk of the file that we are mapping \\ \vspace*{2mm}
+							\var{*file}               & A \struct{file} that is the write-back file. This is also used for indenficication \\ \vspace*{2mm}
+							\var{file\_offset}        & A \const{off\_t} that is the offset from the file that we are mapping \\ \vspace*{2mm}
+							\var{length}              & An \const{int16\_t} that is the length of the chunk of the file that we are mapping \\ \vspace*{2mm}
 							\var{writable}            & A \const{bool} that is if the mapping should be writable or not \\ \vspace*{2mm}
-							\var{dirty} 							& A \const{bool} that is if any of the removed users had their dirty bit set \\ \vspace*{2mm}
-							\var{lock}          			& A \struct{lock} that is the general lock used for this \struct{shared\_map}\\ \vspace*{2mm}
+							\var{dirty}               & A \const{bool} that is if any of the removed users had their dirty bit set \\ \vspace*{2mm}
+							\var{lock}                & A \struct{lock} that is the general lock used for this \struct{shared\_map}\\ \vspace*{2mm}
 							\var{used\_mmaped\_pages} & A \struct{list} that is the list of all users of that mmap \\ \vspace*{2mm}
 					\end{tabular}
 				\end{center}
@@ -300,12 +424,12 @@
 				\begin{center}
 					\begin{tabular}{l p{10cm}}
 							\vspace*{2mm}
-							\var{is_lazy}							& A TODO 
+							\var{is\_lazy}            & A TODO \\ \vspace*{2mm}
 							\var{mmap\_id\_elem}      & A \struct{list\_elem} used for the bookkeeping list \\ \vspace*{2mm}
 							\var{shared\_mmap\_elem}  & A \struct{list\_elem} used for the mmap users list \\ \vspace*{2mm}
-							\var{*shared\_mmap} 			& A \struct{shared\_mmap} that is a pointer to the mmap for that respective user \\ \vspace*{2mm}
-							\var{*pd}          				& A \const{uint32\_t} that is the page directory of the mmapped page \\ \vspace*{2mm}
-							\var{*vpage}            	& A \struct{void} pointer to the user page within referenced \\ \vspace*{2mm}
+							\var{*shared\_mmap}       & A \struct{shared\_mmap} that is a pointer to the mmap for that respective user \\ \vspace*{2mm}
+							\var{*pd}                 & A \const{uint32\_t} that is the page directory of the mmapped page \\ \vspace*{2mm}
+							\var{*vpage}              & A \struct{void} pointer to the user page within referenced \\ \vspace*{2mm}
 					\end{tabular}
 				\end{center}
 
