@@ -1,0 +1,335 @@
+\documentclass{report}
+	\title{50007.3 - Laboratory - Task 3 - Design Document}
+	\author{Robbie Buxton, Jordan Hall, Bartłomiej Cieślar and Oliver Killane}
+	\date{01/12/21}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx, amssymb, amsfonts, amsmath, xcolor, listings, tcolorbox, enumerate}
+
+\graphicspath{{image/}}
+
+\definecolor{codebackdrop}{gray}{0.9}
+\definecolor{commentgreen}{rgb}{0,0.6,0}
+\lstset{
+	inputpath=../../src/vm,
+	commentstyle=\color{commentgreen},
+	keywordstyle=\color{blue}, 
+	backgroundcolor=\color{codebackdrop}, 
+	basicstyle=\footnotesize,
+	frame=single,
+	numbers=left,
+	stepnumber=1,
+	showstringspaces=false,
+	breaklines=true,
+	postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space}
+}
+
+% COMMON TOOLS:
+\newcommand{\question}[1]{\textit{#1} \ }
+\newcommand{\sidenote}[2]{\begin{tcolorbox}[title=#1]#2\end{tcolorbox}}
+\newcommand{\bullpara}[2]{\item \textbf{#1} \ #2}
+\newcommand{\keyword}[1]{\textbf{#1}}
+
+% SYNTAX HIGHLIGHTING:
+\newcommand{\fun}[1]{\textcolor{Emerald}{\textbf{#1}}}
+\newcommand{\file}[1]{\textcolor{YellowGreen}{\textbf{#1}}}
+\newcommand{\struct}[1]{\textcolor{orange}{\textbf{#1}}}
+\newcommand{\var}[1]{\textcolor{RoyalPurple}{\textbf{#1}}}
+\newcommand{\const}[1]{\textcolor{BrickRed}{\textbf{#1}}}
+
+% CODE LISTINGS:
+% \pintoscode{startline}{endline}{title}{file}
+\newcommand{\pintoscode}[4]{\lstinputlisting[language=C, firstline = #1, firstnumber = #1, lastline = #2, title = #3]{#4}}
+
+% \pintoscode{startline}{endline}{file}
+\newcommand{\pintosfile}[3]{\pintoscode{#1}{#2}{\file{#3}}{#3}}
+
+% \codeline{language}{line}{file}
+\newcommand{\codeline}[3]{\lstinputlisting[language=#1, firstline = #2, lastline = #2]{#3}}
+
+\newcommand{\centerimage}[2]{\begin{center}
+	\includegraphics[#1]{#2}
+\end{center}}
+
+\begin{document}
+	\maketitle
+
+	\section*{Group}
+		\question{Fill in the names and email addresses of your group members.}
+		\begin{center}
+			\begin{tabular}{r l}
+				\textbf{Name} & \textbf{Email} \\
+				Bartłomiej Cieślar & bc1520@ic.ac.uk \\
+				Jordan Hall & jh4020@ic.ac.uk \\
+				Oliver Killane & ok220@ic.ac.uk \\
+				Robert Buxton & rb419@ic.ac.uk \\
+			\end{tabular}
+		\end{center}
+	
+	\section*{Preliminaries}
+		\subsection*{Latex Formatting}
+		To make this document easier to read, we have implemented a consistent style:
+		\subsubsection*{D4 (5 marks)}
+		\question{This is the question's text\dots
+		\\
+		\\ \dots it can go over several lines!}
+		\\ We also have syntax highlighting for:
+		\begin{itemize}
+			\item Functions such as \fun{schedule} or \fun{init\_thread}.
+			\item Variables such as \var{num\_ready\_threads} or \var{thread\_mlfqs}.
+			\item Structures of type definitions such as \struct{thread} or \struct{ready\_queue}.
+			\item Constants and values set in define such as \const{BINARY\_POINT} and \const{PRI\_MAX}.
+			\item Files such as \file{thread.c} and \file{fixed-point.h}.
+		\end{itemize}
+		We also include code directly from this repository, so the contents, line 
+		numbers and file titles all match their respective places.
+		\pintoscode{98}{110}{\file{syscall.c}}{/../userprog/syscall.c}
+		This makes our document quicker and easier to read and mark.
+
+		\subsection*{Interesting things we've used for the project}
+		During the project we've set up our own tools to speed-up development. Some
+		of the tools we've used include the following:
+
+			\subsubsection*{Continuous Integration}
+			We've set up a Gitlab's CI to run the test suite on a custom Docker Image 
+			designed for PintOS. This runs the applicable tests for
+			each of the parts we've implemented. If any of these tests fail, then the 
+			branch cannot be merged into the master branch until the
+			necessary changes have been made. This ensures that any "quick changes" 
+			made to the master branch don't accidentally cause the tests
+			to fail unexpectedly.
+			
+			\subsubsection*{Linter}
+			In order to enforce a single code-style across all of our changes, we 
+			extended the makefile to include a built-in linter. The CI pipeline also 
+			includes a linting pass over all files that we've edited throughout the 
+			project. The linter we decided to use was the checkpatch linter, which 
+			follows the linux kernel style guide. We decided upon this because the 
+			linux kernel's style guide most closely follows the style used throughout 
+			the PintOS codebase. 
+			
+			\subsubsection*{Formatting Scripts}
+			To pair with the linter, we've used a clang-formatter paired with a custom 
+			python script (see pintos\_16/reformat.py) to reformat the codebase. This 
+			speeds-up the time otherwise wasted appeasing the linter and further ensures
+			a common code style.
+
+			\subsubsection*{Live Code Sharing}
+			For tasks 2 and 3 we learnt from difficulties in integrating 
+			separately developed sections of code by adopting a more 
+			collaborative approach.
+			\\
+			\\ By having two team members working on a problem at a time, 
+			working using VSCode liveshare to work jointly, we found far more 
+			bugs were caught early, code quality improved and we 
+			could make design changing decisions more quickly.
+
+	\section*{Page Table/Frame Management}
+		\subsection*{Data Structures}
+			\subsubsection*{A1 (2 mark)}
+				\question{Copy here the declaration of each new or changed 
+				`struct' or `struct' member, global or static variable, `typedef'
+				, or enumeration that relates to your supplemental page table 
+				and frame table. Identify the purpose of each in roughly 25 words.}
+				%Oli
+				
+				% frame struct (fte)
+				\pintosfile{10}{22}{frame.c}
+								
+				% frame table (*ftes)
+				\pintosfile{38}{38}{frame.c}
+				
+				% user_base
+				
+				% frame table diagram
+				
+				
+				% used_queue
+				\pintosfile{}{}{frame.c}
+				% used_queue lock
+				% unlocked_frames semaphore
+				
+				% used_queue diagram
+				% pte explainer
+				
+
+		\subsection*{Algorithms}
+			\subsubsection*{A2 (2 mark)}
+				\question{Describe your code for finding the frame (if any) or 
+				other location that contains the data of a given page.}
+				Our code for finding a frame uses a second-chance algorithm.
+				We implement getting the frame by first ensuring, with a
+				semaphore, that there is at least one unlocked frame in the framing
+				system. Then, once that succeeds, we know that there is either
+				a free frame in the palloc system or an unlocked used frame in
+				the second-chance queue. Then, after having checked that there
+				are no free frames in the palloc system, we acquire the lock
+				for the second-chance queue. Subsequently, we put the items in
+				front of the queue to its back 
+	
+			\subsubsection*{A3 (2 mark)}
+				\question{How have you implemented sharing of read only pages?}
+			
+		\subsection*{Synchronization}
+			\subsubsection*{A4 (2 mark)}
+				\question{When two user processes both need a new frame at 
+				the same time, how are races avoided? You should consider both 
+				when there are and are not free frames available in memory.}
+			
+		\subsection*{Rationale}
+			\subsubsection*{A5 (2 mark)}
+				\question{Why did you choose the data structure(s) that you did for 
+				representing the supplemental page table and frame table?}
+				
+	\section*{Paging To And From Disk}
+		\subsection*{Data Structures}
+			\subsubsection*{B1 (1 mark)}
+				\question{Copy here the declaration of each new or changed `struct' or
+				`struct' member, global or static variable, `typedef', or enumeration 
+				that relates to your swap table. Identify the purpose of each in roughly
+				25 words.}
+		
+		\pintosfile{9}{9}{swap.h}
+			The \var{swapid\_t} typedef signifies that we are idexing in the
+			swap table.
+		
+		\pintosfile{11}{11}{swap.h}
+			\var{swap\_frame\_access\_funcs} is declared as extern in swap.h so that it is
+			accessible outside of the file. This struct contains the function pointers used to
+		  utilize strategies when swapping between different types of frames.
+
+
+		\pintosfile{22}{26}{swap.c}
+			Every frame has a \var{frame\_access\_func} struct. This contains
+			the policies for evicting the frame, and resetting and fetching the accessed bit. 
+			This implements the strategy pattern, allowing us to have different policies
+			depending on the frames use.
+		
+		
+		\pintosfile{30}{30}{swap.c}
+      We decided to use an interval tree for indicating if a swap slot is empty.
+      For a swap space of size \var{n} swaps (\var{n} is twice the
+      the number of real swap slots rounded up to the nearest power of 2), the bitmap for the interval tree is
+      of size $2*\var{n}-1$. The interval tree allows us to find a free page in 
+      $log(\var{n})$ steps.
+		
+		\pintosfile{31}{31}{swap.c}
+      This is a simple bitmap for checking if the swapped frame is writable or not. 
+			It is indexed in constant time.
+
+		\pintosfile{33}{33}{swap.c}
+      This is a pointer to the block that contains the swapped frames. This is initialized
+      on start-up. It is of a variable size determined by the size of the swap disk.
+
+		\pintosfile{35}{35}{swap.c}
+		  A simple lock to synchronise the \var{is\_free\_tree} during access.
+		
+		\subsection*{Algorithms}
+			\subsubsection*{B2 (2 mark)}
+				\question{When a frame is required but none is free, some frame must be evicted.
+				Describe your code for choosing a frame to evict.}
+			
+			\subsubsection*{B3 (2 mark)}
+				\question{When a process P obtains a frame that was previously used by a 
+				process Q, how do you adjust the page directory of process Q 
+				(and any other data structures) to reflect the frame Q no longer has?}
+
+		\subsection*{Synchronization}
+			\subsubsection*{B4 (2 mark)}
+				\question{Explain how your synchronization design prevents deadlock.
+				(You may want to refer to the necessary conditions for deadlock.)}
+
+			\subsubsection*{B5 (2 mark)}
+				\question{A page fault in process P can cause another process Q's frame to
+				be evicted. How do you ensure that Q cannot access or modify the page 
+				during the eviction process?)}
+
+			\subsubsection*{B6 (2 mark)}
+				\question{A page fault in process P can cause another process Q's frame
+				to be evicted. How do you avoid a race between P evicting Q's frame and 
+				Q faulting the page back in?}
+
+			\subsubsection*{B7 (2 mark)}
+				\question{Explain how you handle access to user pages that are not 
+				present when a system call is made.}
+			
+		\subsection*{Rationale}
+			\subsubsection*{B8 (2 mark)}
+				\question{There is an obvious trade-off between parallelism and the 
+				complexity of your synchronisation methods. Explain where your design 
+				falls along this continuum and why you chose to design it this way.}
+
+	\section*{Memory Mapped Files}
+		\subsection*{Data Structures}
+			\subsubsection*{C1 (1 mark)}
+				\question{Copy here the declaration of each new or changed `struct' or 
+				`struct' member, global or static variable, `typedef', or 
+				enumeration that relates to your file mapping table. Identify 
+				the purpose of each in roughly 25 words.}
+				
+				% mmaps
+				\pintosfile{37}{37}{mmap.c}
+				Hash map of all the \struct{shared\_mmap} instances. This is used for 
+				sharing the mmapings in \fun{mmap\_register()}.
+
+				% mmaps_lock
+				\pintosfile{40}{40}{mmap.c} 
+				The lock for the hash map
+				
+				% shared_mmap
+				\pintosfile{45}{57}{mmap.c}
+				Handles a page sized block of an mmaped file, with a list of all 
+				\struct{user\_mmap's} using of it. \\
+				\begin{center}
+					\begin{tabular}{l p{10cm}}
+							\vspace*{2mm}
+							\var{mmap\_system\_elem}  & A \struct{hash\_elem} that is the elem for \struct{mmaps} \\ \vspace*{2mm}
+							\var{*file}         			& A \struct{file} that is the write-back file. This is also used for indenficication \\ \vspace*{2mm}
+							\var{file\_offset} 				& A \const{off\_t} that is the offset from the file that we are mapping \\ \vspace*{2mm}
+							\var{length}          		& An \const{int16\_t} that is the length of the chunk of the file that we are mapping \\ \vspace*{2mm}
+							\var{writable}            & A \const{bool} that is if the mapping should be writable or not \\ \vspace*{2mm}
+							\var{dirty} 							& A \const{bool} that is if any of the removed users had their dirty bit set \\ \vspace*{2mm}
+							\var{lock}          			& A \struct{lock} that is the general lock used for this \struct{shared\_map}\\ \vspace*{2mm}
+							\var{used\_mmaped\_pages} & A \struct{list} that is the list of all users of that mmap \\ \vspace*{2mm}
+					\end{tabular}
+				\end{center}
+				
+				% user_mmap
+				\pintosfile{60}{67}{mmap.c}
+				Handles the user's page table entry for an mmaped page. \\
+				\begin{center}
+					\begin{tabular}{l p{10cm}}
+							\vspace*{2mm}
+							\var{is_lazy}							& A TODO 
+							\var{mmap\_id\_elem}      & A \struct{list\_elem} used for the bookkeeping list \\ \vspace*{2mm}
+							\var{shared\_mmap\_elem}  & A \struct{list\_elem} used for the mmap users list \\ \vspace*{2mm}
+							\var{*shared\_mmap} 			& A \struct{shared\_mmap} that is a pointer to the mmap for that respective user \\ \vspace*{2mm}
+							\var{*pd}          				& A \const{uint32\_t} that is the page directory of the mmapped page \\ \vspace*{2mm}
+							\var{*vpage}            	& A \struct{void} pointer to the user page within referenced \\ \vspace*{2mm}
+					\end{tabular}
+				\end{center}
+
+		\subsection*{Algorithms}
+			\subsubsection*{C2 (2 mark)}
+				\question{Explain how you determine whether a new file mapping overlaps 
+				with any existing segment and how you handle such a case.}
+
+				The way we decided to handle any potential overlaps between new file 
+				mapping and existing segments is by using a called \fun{pagedir\_get\_page\_type}
+				if the returned enum is \var{NOTSET} 
+				then it is not in use yet and as a result it can be used for a new file mapping. 
+				Otherwise if we detect that the new file mapping overlaps an existing segment then we 
+				fail the file mapping and the function returns \const{$-1$}.
+
+			
+			\subsubsection*{C3 (2 mark)}
+				\question{Mappings created with "mmap" have similar semantics to those of 
+				data demand-paged from executables. How does your code-base take advantage 
+				of this?}
+
+			We decided to take advantage of the similarities between mappings created with "mmap" and data demand-paged from executables
+			by merging the two systems into a single monolithic system. They are treated the same way when lazy loaded. 
+			The only difference is that the executables are not writable, and so when we unregister an mmaping belonging to an executable,
+			we do not write-back to the file under any circumstances.
+
+\end{document}
