@@ -1,8 +1,6 @@
 #ifndef __LIB_SYSCALL_NR_H
 #define __LIB_SYSCALL_NR_H
 
-#define NUM_SYSCALL 13 /* To be changed for later tasks */
-
 /* System call numbers. */
 enum {
 	/* Tasks 2 and later. */
@@ -24,8 +22,10 @@ enum {
 	SYS_MMAP, /* Map a file into memory. */
 	SYS_MUNMAP, /* Remove a memory mapping. */
 
+	NUM_SYSCALL, /* Number of syscalls we handle */
+
 	/* Task 4 only. */
-	SYS_CHDIR, /* Change the current directory. */
+	SYS_CHDIR = NUM_SYSCALL, /* Change the current directory. */
 	SYS_MKDIR, /* Create a directory. */
 	SYS_READDIR, /* Reads a directory entry. */
 	SYS_ISDIR, /* Tests if a fd represents a directory. */

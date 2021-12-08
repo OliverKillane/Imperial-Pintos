@@ -5,6 +5,16 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+#ifdef VM
+#include <string.h>
+#include "threads/pte.h"
+#include "userprog/pagedir.h"
+#include "userprog/process.h"
+#include "vm/lazy.h"
+#include "vm/mmap.h"
+#include "vm/swap.h"
+#endif
+
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -139,6 +149,12 @@ static void page_fault(struct intr_frame *f)
 	 */
 	asm("movl %%cr2, %0" : "=r"(fault_addr));
 
+	/* Get the value of the page table entry of the fault_addr. */
+#ifdef VM
+	uint32_t pte_val = pagedir_get_raw_pte(thread_current()->pagedir,
+																				 pg_round_down(fault_addr));
+#endif
+
 	/* Turn interrupts back on (they were only off so that we could
 	 * be assured of reading CR2 before it changed).
 	 */
@@ -147,24 +163,100 @@ static void page_fault(struct intr_frame *f)
 	/* Count page faults. */
 	page_fault_cnt++;
 
-	/* Determine cause. */
+#ifdef VM
+
+	/* Check for page fault on lazy zeroed, lazily loaded and mmaped pages. */
+	switch (pte_get_type(pte_val)) {
+	/* For mmaped pages:
+	 * 1. Get the pointer to the mmap page to load (user_mmap struct).
+	 * 2. Load the mmap data from the filesystem to a new frame and set page
+	 *    table (done inside MMAP_LOAD).
+	 */
+	case MMAPPED:
+		mmap_load(pte_get_user_mmap(pte_val));
+		return;
+
+	/* For swapped pages:
+	 * 1. Get a new locked frame (potentially by page replacement).
+	 * 2. Use the swap id from the page table entry to load from the swap.
+	 * 3. Set the page table entry to the frame was loaded to.
+	 * 4. Unlock the frame (now can be page replaced as normal).
+	 */
+	case SWAPPED: {
+		void *kpage = frame_get();
+		bool writable = swap_load(kpage, pte_get_swapid(pte_val));
+		if (!pagedir_set_page(thread_current()->pagedir, pg_round_down(fault_addr),
+													kpage, writable))
+			NOT_REACHED();
+		frame_unlock_swappable(thread_current()->pagedir, pg_round_down(fault_addr),
+													 kpage);
+		return;
+	}
+
+	/* For lazy pages:
+	 * 1. Get a new locked frame (potentially by page replacement).
+	 * 2. Load the lazy page's contents from the file system to the frame.
+	 * 3. Set the page table entry to the frame the data was loaded to.
+	 * 4. Unlock the frame (now can be page replaced as normal), and mark as a
+	 *    swappable page (evicted to swap space e.g like stack).
+	 */
+	case LAZY: {
+		void *kpage = frame_get();
+		lazy_load_lazy(kpage, pte_get_lazy_load(pte_val));
+		if (!pagedir_set_page(thread_current()->pagedir, pg_round_down(fault_addr),
+													kpage, true))
+			NOT_REACHED();
+		frame_unlock_swappable(thread_current()->pagedir, pg_round_down(fault_addr),
+													 kpage);
+		return;
+	}
+
+	/* For zeroed pages:
+	 * 1. Check: access is valid:
+	 *		a. If in stack -> must be above (stack pointer - 32 bytes).
+	 *		b. Else it is from the running process's data section.
+	 * 2. Get a new locked frame (potentially by page replacement).
+	 * 3. Set the frame to all-zeros.
+	 * 4. Set the page table entry to the now zeroed frame.
+	 * 5. Unlock the frame (now can be page replaced as normal), and mark as a
+	 *    swappable page (evicted to swap space e.g like stack).
+	 */
+	case ZEROED: {
+		if (fault_addr >= (f->esp - 32) || fault_addr < STACK_BOTTOM) {
+			void *kpage = frame_get();
+			memset(kpage, 0, PGSIZE);
+			if (!pagedir_set_page(thread_current()->pagedir,
+														pg_round_down(fault_addr), kpage,
+														pte_is_zeroed_writeable(pte_val)))
+				NOT_REACHED();
+			frame_unlock_swappable(thread_current()->pagedir,
+														 pg_round_down(fault_addr), kpage);
+			return;
+		}
+	}
+
+	/* All other accesses treated as normal (non-VM) page faults. */
+	default:
+		break;
+	}
+#endif
+
+	/* Determine cause of page fault. */
 	not_present = (f->error_code & PF_P) == 0;
 	write = (f->error_code & PF_W) != 0;
 	user = (f->error_code & PF_U) != 0;
 
-	/* For the address correctness checking behavior in get_user and put_user in
-	 * syscall.c
-	 */
-	if (!user && thread_current()->may_page_fault) {
+	/* Used to check addresses are valid in PUT_USER and GET_USER. */
+	if (!user
+#ifndef NDEBUG
+			&& thread_current()->may_page_fault
+#endif
+	) {
 		f->eip = (void *)f->eax;
 		f->eax = -1;
 		return;
 	}
 
-	/* To implement virtual memory, delete the rest of the function
-	 * body, and replace it with code that brings in the page to
-	 * which fault_addr refers.
-	 */
 	printf("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
 				 not_present ? "not present" : "rights violation",
 				 write ? "writing" : "reading", user ? "user" : "kernel");

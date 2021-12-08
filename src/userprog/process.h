@@ -5,6 +5,10 @@
 #include "threads/synch.h"
 #include <list.h>
 
+/* The bottom of the lazy-zeroed stack */
+#define STACK_MAX_SIZE 0x400000
+#define STACK_BOTTOM PHYS_BASE - STACK_MAX_SIZE
+
 /* Process identifier. (duplicated code from src/user/syscall.h) */
 typedef int pid_t;
 #define PID_ERROR ((pid_t)-1)
