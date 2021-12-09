@@ -80,9 +80,12 @@
 		\\ We also have syntax highlighting for:
 		\begin{itemize}
 			\item Functions such as \fun{schedule} or \fun{init\_thread}.
-			\item Variables such as \var{num\_ready\_threads} or \var{thread\_mlfqs}.
-			\item Structures of type definitions such as \struct{thread} or \struct{ready\_queue}.
-			\item Constants and values set in define such as \const{BINARY\_POINT} and \const{PRI\_MAX}.
+			\item Variables such as \var{num\_ready\_threads} or 
+			\var{thread\_mlfqs}.
+			\item Structures of type definitions such as \struct{thread} or 
+			\struct{ready\_queue}.
+			\item Constants and values set in define such as 
+			\const{BINARY\_POINT} and \const{PRI\_MAX}.
 			\item Files such as \file{thread.c} and \file{fixed-point.h}.
 		\end{itemize}
 		We also include code directly from the repository, so the contents, line 
@@ -91,107 +94,125 @@
 		This makes our document quicker and easier to read and mark.
 
 		\subsection*{Interesting things we've used for the project}
-		During the project we've set up our own tools to speed-up development. Some
-		of the tools we've used include the following:
+		During the project we have set up our own tools to increase the speed of
+		development. Some of the tools we used are listed below:
 
 			\subsubsection*{Continuous Integration}
-			We have set up Gitlab's CI to run the test suite on a custom Docker image 
-			designed for PintOS. This runs tests for
-			each of the parts we have implemented. If any of these tests fail, then the 
-			branch cannot merge into the master branch. This ensures that any "quick changes" 
+			We have set up Gitlab's CI to run the test suite on a custom Docker 
+			image designed for PintOS. This runs tests for each of the parts we 
+			have implemented. If any of these tests fail, then the branch cannot
+			merge into the master branch. This ensures that any "quick changes" 
 			made to the master branch do not break the code base.
 			
 			\subsubsection*{Linter}
-			In order to enforce a single code-style across all of our changes, we 
-			extended the makefile to include a built-in linter. The CI pipeline also 
-			includes a linting pass over all files that we've edited throughout the 
-			project. The linter we decided to use was the checkpatch linter, which 
-			we sourced from the linux codebase 
-			\href{https://github.com/torvalds/linux/blob/master/scripts/checkpatch.pl}{here}. 
-			It follows the linux kernel style.
+			In order to enforce a single code-style across all of our changes, 
+			we extended the makefile to include a built-in linter. The CI 
+			pipeline also includes a linting pass over all files that we have 
+			edited throughout the project. The linter we decided to use was 
+			the checkpatch linter, which we sourced from the linux codebase 
+			\href{https://github.com/torvalds/linux/blob/master/scripts
+			/checkpatch.pl}{here}. It follows the linux kernel style.
 			
 			\subsubsection*{Formatting Scripts}
-			Paired with the linter, we have used the clang-formatter and a custom 
-			python script (see pintos\_16/reformat.py) to reformat the codebase to 
-			conform with the chosen style. 
+			Paired with the linter, we have used the clang-formatter and a 
+			custom python script (see pintos\_16/reformat.py) to reformat the 
+			codebase to conform with the linux kernel style. 
 
 			\subsubsection*{Live Code Sharing}
-			For tasks 2 and 3 we have adopted a more collaborative approach.
-			\\
-			\\ By having pairs working on a problem simultaneously using the
-			VSCode liveshare functionality, we found that more bugs were caught early, 
-			our code quality has improved and we could make design changing decisions 
-			quicker.
+			For tasks 2 and 3 we have adopted a more collaborative approach. 
+			By having pairs work on a problem simultaneously using the 
+			VSCode liveshare functionality, we found that more bugs were caught 
+			early,our code quality improved and we could make design 
+			changing decisions quicker.
 
 	\section*{Page Table/Frame Management}
 		\subsection*{Data Structures}
 			\subsubsection*{A1 (2 mark)}
 				\question{Copy here the declaration of each new or changed 
-				`struct' or `struct' member, global or static variable, `typedef'
-				, or enumeration that relates to your supplemental page table 
-				and frame table. Identify the purpose of each in roughly 25 words.}
+				`struct' or `struct' member, global or static variable, 
+				`typedef', or enumeration that relates to your supplemental 
+				page table and frame table. Identify the purpose of each in 
+				roughly 25 words.}
 				
-
 				\centerimage{width=\textwidth}{page table entry.png}
-				We decided not to use a supplemental page table because we deemed
-				it an unnecessary waste of memory. We found out that, by using a 
-				type of Huffmann encoding, we can place the necessary data in 
-				the paged-out entries of the page table. This also has more 
-				potential for speed increase, assuming often local page-faults 
-				thanks to the smaller size of a supplemental page table entry. 
-				In the case that the page is paged-in, we do not need to worry
-				about it since we are not going to page fault on them during
-				normal operation. So, assuming a pte is paged-out, we have
-				several states that it can be in:
+				% -------------------------------------------------------------
+				% ---BARTEK WHAT DOES THIS MEAN IT DOESN'T MAKE SENSE----------
+				% -----------------------142 - 145 ----------------------------
+				% -------------------------------------------------------------
+				We decided not to use a supplemental page table because we 
+				deemed it an unnecessary waste of memory. We found out that, by
+				using a type of Huffmann encoding, we can place the necessary 
+				data in the paged-out entries of the page table. 
+				Storing the data about paged-out entries in the page table also has 
+				an added benefit of the page table entry being fetched into cache during
+				the TLB miss, which means that the data for it can be fetched directly from the L1 cache. 
+				This increases the performance of the page fault handler significantly. \\
+				In the case that the page is paged-in, we do not 
+				need to worry about it since we are not going to page fault on 
+				them during normal operation. When a pte is paged-out, it has 
+				several possible states:
 				\compitem{
 					\bullpara{Swapped entry}
-						{\\In this case, with the remaining bits that are not used for the encoding,
-						we store a swap frame id which is going to be used when paging
-						the entry in. Because we can only store up to 29 bits this
-						way, we are limited in terms of the maximum swap size, with the upper limit of 1TB.
-						This should still be plenty compared to the maximum of 64MB
+						{\\In this case, with the remaining bits that are not 
+						used for the encoding, we store a swap frame id which 
+						is going to be used when paging the entry in. Because we
+						can only store up to 29 bits, we are limited in terms of
+						the maximum swap size with the upper limit of 1TB. This 
+						should still be plenty compared to the maximum of 64MB 
 						of RAM available in the system.}
 					\bullpara{Lazy-zeroed entry}
-						{\\In this case, the first remaining bit that is not used for the encoding
-						determines whether the zeroed page should be
-						writable or not. The remaining bits are used for some auxiliary
-						data that the thread can use when setting up the process.
-						In fact, we use this space in our setup in order to keep the
-						maximum mapping size for lazy loading of frames.}
+						{\\In this case, the first remaining bit that is not 
+						used for the encoding determines if the zeroed page 
+						should be writable or not. The remaining bits are used 
+						for auxiliary data that the thread can use when setting 
+						up the process. We use this space in our setup in order 
+						to keep the maximum mapping size for the lazy loading of
+						frames.}
 					\bullpara{Mmaped or lazy-loading entry}
-						{\\ In this case, we have 30 bits left over for storing the
-						pointer to the structs that manage the mmaped or lazy-loaded
-						entries. The ISO specification ensures that all malloced structs are
-						allocated at address with the same alignment as the alignment of the struct.
-						Because both structs are 4 bytes aligned, their pointers will also be 4 bytes aligned,
-						so we can discard the leading 2 bits in those pointers and fit them in
-						the remaining space of the pte. As far as the dispatch between the
-						two structs goes, each of them has a boolean field, 
-						with which we can use to determine which type of struct the pointer belongs to.
-						This adds at most 4 bytes due to the alignment, but
-						still outweighs having to allocate a supplemental page table.}
+						{\\ In this case, we have 30 bits remaining for storing 
+						the pointer to the structs that manage the mmaped or 
+						lazy-loaded entries. The ISO specification ensures that 
+						all malloced structs are allocated at address with the 
+						same alignment as the struct. Because both structs are 
+						4 bytes aligned, their pointers will also be 4 bytes 
+						aligned. This means we can discard the leading 2 bits 
+						in those pointers and fit them in the remaining space 
+						of the pte.To determine if the pointer is to an mmap 
+						page (\struct{user\_mmap} struct) or a lazily loaded 
+						page (\struct{lazy\_page} struct) we dereference the 
+						pointer as a boolean. The first field of both structs 
+						is a boolean, false for \struct{user\_mmap} and true for 
+						\struct{lazy\_page}. We can then cast the pointer 
+						accordingly. This adds at most 4 bytes due to the 
+						alignment, but still outweighs having to allocate a 
+						supplemental page table.}
 				}
-
-				It is important to note that getting a frame's PTE is atomic, because it means that
-				there are no data races in aquiring a frame's associated PTE and the data about that entry.
+				It is important to note that getting a frame's PTE is atomic.
+				This is because it means that there are no data races in 
+				aquiring a frame's associated PTE and the data relating to that
+				entry.
 				
 				% frame struct (fte)
 				\pintosfile{11}{22}{frame.c}
 				\begin{center}
 					\begin{tabular}{l p{10cm}}
 						\vspace*{2mm}
-						\var{used\_elem} & This \struct{list\_elem} is used to handle the 
-						frame table entry within the \struct{used\_queue}. \\ \vspace*{2mm}
+						\var{used\_elem} & This \struct{list\_elem} is used to 
+						handle the frame table entry within the 
+						\struct{used\_queue}. \\ \vspace*{2mm}
 
-						\var{is\_swappable}  & This boolean determines if the frame is to be written to 
-						swap space (stack pages and writeable lazy-loaded) with \file{swap.\{c,h\}} 
-						functions, or back to the file system (mmap system pages). \\ \vspace*{2mm}
+						\var{is\_swappable}  & This boolean determines if the 
+						frame is to be written to swap space (stack pages and 
+						writeable lazy-loaded) with \file{swap.\{c,h\}} 
+						functions, or back to the file system (mmap system 
+						pages). \\ \vspace*{2mm}
 
-						\const{union}  & This is a union of the data required for both swappable 
-						and mmaped pages.  \\ \vspace*{2mm}
+						\const{union}  & This is a union of the data required 
+						for both swappable and mmaped pages.  \\ \vspace*{2mm}
 
 						\var{shared\_mmap}  & A pointer to the 
-						struct{shared\_mmap} struct that owns the frame. The file, offset, 
+						\struct{shared\_mmap} struct that owns the frame. The 
+						file, offset, 
 						length and other data required for reading from and to disk as well 
 						as the page table entries using the \struct{shared\_mmap} are stored
 						here. (For mmapped pages)
@@ -584,6 +605,37 @@
 					}
 				}
 				Therefore, no deadlock can occur, since no resources can be acquired in a circular chain (by the definition of a DAG).
+
+				\subsection*{The following images are visual aids to our synchronisation system:}
+					\begin{minipage}{\textwidth}
+						The legend for following diagrams:
+						\centerimage{width=\textwidth}{synch legend.png}
+					\end{minipage}
+					\begin{minipage}{\textwidth}
+						Loading a new child process:
+						\centerimage{width=\textwidth}{synch load.png}
+					\end{minipage}
+					\begin{minipage}{\textwidth}
+						Mmap reigster and unregister handling:
+						\centerimage{width=\textwidth}{synch mmap.png}
+					\end{minipage}
+
+					\begin{minipage}{\textwidth}
+						Page faulting and getting a new frame from the pool:
+						\centerimage{width=\textwidth}{synch page fault.png}
+					\end{minipage}
+
+					\begin{minipage}{\textwidth}
+						Syscall handling:
+						\centerimage{width=\textwidth}{synch syscall.png}
+					\end{minipage}
+
+					\begin{minipage}{\textwidth}
+						Thread exit handling:
+						\centerimage{width=\textwidth}{synch thread exit.png}
+					\end{minipage}
+
+				
 				
 			\subsubsection*{B5 (2 mark)}
 				\question{A page fault in process P can cause another process Q's frame to
@@ -791,12 +843,6 @@
 				by merging the two systems into a single monolithic system. They are treated the same way when lazy loaded. 
 				The only difference is that the executables are not writable, and so when we unregister an mmaping belonging to an executable,
 				we do not write-back to the file under any circumstances.
-
-				There are three types of mmaped pages that behave in subtly differen ways. The three are:
-				\compitem{
-					\bullpara{Mmapped - where we map a section of a file to a part of memory. May be readable or writable}{}
-					\bullpara{Zeroed - }{}
-				}
 				
 				Due to the specifications of ELF files, there needs to be sections of mmaped files that behave in the
 				following way:
