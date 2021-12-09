@@ -454,7 +454,7 @@ void write(uint32_t *ret, const void *args)
 			}
 			off_t bytes_written;
 			if (fd == STDOUT_FILENO) {
-				putbuf((int8_t *)read_write_buffer, bytes_to_write);
+				putbuf((char *)read_write_buffer, bytes_to_write);
 				bytes_written = bytes_to_write;
 			} else {
 				filesys_enter();
