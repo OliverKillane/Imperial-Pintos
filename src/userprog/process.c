@@ -189,9 +189,8 @@ tid_t process_execute(const char *command)
 						struct child_manager *child = child_data.parent;
 
 						/* Create a new thread to execute the process. */
-						tid_t tid;
-						tid = thread_create(file_name_str, PRI_DEFAULT, start_process,
-																&child_data);
+						tid_t tid = thread_create(file_name_str, PRI_DEFAULT, start_process,
+																			&child_data);
 						if (tid != TID_ERROR) {
 							free(command_tok);
 							sema_down(&child->wait_sema);
@@ -209,7 +208,11 @@ tid_t process_execute(const char *command)
 				}
 				free(command_tok);
 			}
+#ifdef VM
+			frame_free(child_data.stack_template);
+#else
 			palloc_free_page(child_data.stack_template);
+#endif
 		}
 		list_remove(&child_data.parent->elem);
 	}
@@ -245,7 +248,11 @@ static void start_process(void *data_ptr)
 #endif
 	bool success = true;
 	if (!load(&if_.eip, file_name)) {
+#ifdef VM
+		frame_free(data->stack_template);
+#else
 		palloc_free_page(data->stack_template);
+#endif
 		success = false;
 	}
 
@@ -254,7 +261,11 @@ static void start_process(void *data_ptr)
 	 */
 	if (success &&
 			!setup_stack(&if_.esp, data->stack_size, data->stack_template)) {
+#ifdef VM
+		frame_free(data->stack_template);
+#else
 		palloc_free_page(data->stack_template);
+#endif
 		success = false;
 	}
 
@@ -705,7 +716,9 @@ bool load(void (**eip)(void), char *file_name)
 	*eip = (void (*)(void))ehdr.e_entry;
 
 #ifdef VM
+	filesys_enter();
 	file_close(file); /* We keep the writability in mmapings */
+	filesys_exit();
 #else
 	t->exec_file = file;
 #endif

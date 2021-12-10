@@ -127,7 +127,7 @@ static inline uintptr_t pd_no(const void *va)
 #define PTE_SWAPID_SHIFT 3 /* Bits to shift swap pte by to get swap id. */
 #define PTE_PTRMASK 0xfffffffc /* Mask to get pointer for lazy/mmap page. */
 
-enum page_type { NOTSET, ZEROED, SWAPPED, MMAPPED, LAZY, PAGEDIN };
+enum page_type { NOTSET, ZEROED, SWAPPED, MMAPED, LAZY, PAGEDIN };
 
 #endif
 
@@ -204,7 +204,7 @@ static inline enum page_type pte_get_type(uint32_t pte)
 	if (pte & PTE_P)
 		return PAGEDIN;
 	if (pte & PTE_PTR)
-		return *(bool *)pte_get_pointer(pte) ? LAZY : MMAPPED;
+		return *(bool *)pte_get_pointer(pte) ? LAZY : MMAPED;
 	if (pte & PTE_S)
 		return SWAPPED;
 	if (pte & PTE_Z)
@@ -228,7 +228,7 @@ static inline uint32_t pte_get_swapid(uint32_t pte)
 /* Get pointer to user_mmap struct from page table entry PTE. */
 static inline struct user_mmap *pte_get_user_mmap(uint32_t pte)
 {
-	ASSERT(pte_get_type(pte) == MMAPPED);
+	ASSERT(pte_get_type(pte) == MMAPED);
 	return pte_get_pointer(pte);
 }
 

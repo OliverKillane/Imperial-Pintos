@@ -26,7 +26,8 @@ struct user_mmap *mmap_list_entry(struct list_elem *elem);
 void mmap_load(struct user_mmap *user_mmap);
 
 /* Access functions for mmaped pages - used in frame system. */
-void mmap_frame_evict(void *kpage, struct shared_mmap *shared_mmap);
+void mmap_frame_evict(void *kpage, struct shared_mmap *shared_mmap,
+											struct lock *used_queue_lock);
 bool mmap_frame_was_accessed(struct shared_mmap *shared_mmap);
 void mmap_frame_reset_accessed(struct shared_mmap *shared_mmap);
 

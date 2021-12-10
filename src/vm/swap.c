@@ -12,10 +12,12 @@
 struct bitmap *is_free_tree; /* An interval tree of whether an entry is used */
 struct bitmap *is_writable; /* Whether an entry is brought back writable */
 
-struct lock interval_tree_lock; /* Locks our is_free_tree bitmap */
+struct lock swap_lock; /* Locks our is_free_tree bitmap */
 
 _Static_assert(PGSIZE % BLOCK_SECTOR_SIZE == 0,
 							 "Page size must be divisible by block size");
+
+static bool swap_free_impl(swapid_t id);
 
 /* Initializes the swap system. */
 void swap_init(void)
@@ -47,18 +49,21 @@ void swap_init(void)
 							 bitmap_test(is_free_tree, i * 2) ||
 											 bitmap_test(is_free_tree, i * 2 + 1));
 
-	lock_init(&interval_tree_lock);
+	lock_init(&swap_lock);
 }
 
 /* Finds a free swap slot, sets the pte in the page directory to not present
- * and writes the data from that page into that swap slot.
+ * and writes the data from that page into that swap slot. USED_QUEUE_LOCK is
+ * used to release access to the used_queue, so that other evictions can occur
+ * USED_QUEUE_LOCK must be released before the funtion returns.
  */
-void swap_page_evict(void *kpage, uint32_t *pd, void *vpage)
+void swap_page_evict(void *kpage, uint32_t *pd, void *vpage,
+										 struct lock *used_queue_lock)
 {
 	ASSERT(pg_ofs(kpage) == 0);
 
 	/* Find the first free swap slot. */
-	lock_acquire(&interval_tree_lock);
+	lock_acquire(&swap_lock);
 
 	int32_t node = 1;
 	if (!bitmap_test(is_free_tree, node))
@@ -81,8 +86,6 @@ void swap_page_evict(void *kpage, uint32_t *pd, void *vpage)
 							 bitmap_test(is_free_tree, node * 2) ||
 											 bitmap_test(is_free_tree, node * 2 + 1));
 
-	lock_release(&interval_tree_lock);
-
 	/* Set the page to swapped. We are assuming that this will succeed, since,
 	 * it is being swapped out, then that means that the pte for it should already
 	 * be allocated.
@@ -90,10 +93,18 @@ void swap_page_evict(void *kpage, uint32_t *pd, void *vpage)
 	if (!pagedir_set_swapped_page(pd, vpage, new_swap_id))
 		NOT_REACHED();
 
+	/* We need to chain those locks because of a guarantee in pagedir_destroy
+	 * that, if a frame lock fails on a swappable page, then that means that it
+	 * is in the swap (its page table entry is set to a field in swap).
+	 */
+	lock_release(used_queue_lock);
+
 	/* Write the page to the allocated swap block */
 	for (int i = 0; i < BLOCKS_PER_PAGE; i++)
 		block_write(block_get_role(BLOCK_SWAP), new_swap_id * BLOCKS_PER_PAGE + i,
 								kpage + (i * BLOCK_SECTOR_SIZE));
+
+	lock_release(&swap_lock);
 }
 
 /* Automatically frees that spot and returns whether the entry is writable */
@@ -101,21 +112,35 @@ bool swap_load(void *page, swapid_t id)
 {
 	ASSERT(pg_ofs(page) == 0);
 
+	lock_acquire(&swap_lock);
+
 	/* Load the page back from the swap */
 	for (int i = 0; i < BLOCKS_PER_PAGE; i++)
 		block_read(block_get_role(BLOCK_SWAP), id * BLOCKS_PER_PAGE + i,
 							 page + (i * BLOCK_SECTOR_SIZE));
 
 	/* Set the previously used swap block as usable */
-	return swap_free(id);
+	bool was_writable = swap_free_impl(id);
+
+	lock_release(&swap_lock);
+
+	return was_writable;
 }
 
 /* Free the swap slot. */
 bool swap_free(swapid_t id)
 {
 	/* Update the interval tree with the info that now this swap block is empty */
-	lock_acquire(&interval_tree_lock);
+	lock_acquire(&swap_lock);
+	bool was_writable = swap_free_impl(id);
+	lock_release(&swap_lock);
 
+	return was_writable;
+}
+
+/* Implementation of the swap_free that does not acquire the lock */
+static bool swap_free_impl(swapid_t id)
+{
 	bool was_writable = bitmap_test(is_writable, id);
 
 	int32_t start_of_leaf_nodes = bitmap_size(is_free_tree) / 2;
@@ -123,9 +148,6 @@ bool swap_free(swapid_t id)
 	bitmap_set(is_free_tree, node, true);
 	while (node /= 2)
 		bitmap_set(is_free_tree, node, true);
-
-	lock_release(&interval_tree_lock);
-
 	return was_writable;
 }
 

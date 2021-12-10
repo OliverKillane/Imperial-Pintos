@@ -60,12 +60,6 @@ void filesys_exit(void)
 	lock_release(&filesys_lock);
 }
 
-/* Check if already in the filesystem. */
-bool filesys_lock_held(void)
-{
-	return lock_held_by_current_thread(&filesys_lock);
-}
-
 /* Syscall handling subroutines. */
 static sys_handle halt;
 static sys_handle exit;
@@ -381,8 +375,10 @@ void read(uint32_t *ret, const void *args)
 	} else if (fd < FD_START && fd != STDIN_FILENO) {
 		RETURN(ret, FILE_FAILED);
 	} else if (fd == STDIN_FILENO) {
-		for (size_t offset = 0; offset < size; offset++)
-			((char *)buffer)[offset] = input_getc();
+		for (size_t offset = 0; offset < size; offset++) {
+			if (!put_user(buffer + offset, input_getc()))
+				thread_exit();
+		}
 		RETURN(ret, size);
 	} else {
 		struct file *file = get_file(fd);
@@ -432,14 +428,14 @@ void write(uint32_t *ret, const void *args)
 
 	if (fd < FD_START && fd != STDOUT_FILENO) {
 		RETURN(ret, FILE_FAILED);
-	} else if (fd == STDOUT_FILENO) {
-		putbuf(buffer, size);
-		RETURN(ret, size);
 	} else {
-		struct file *file = get_file(fd);
-		if (!file) {
-			RETURN(ret, FILE_FAILED);
-			return;
+		struct file *file = NULL;
+		if (fd != STDOUT_FILENO) {
+			file = get_file(fd);
+			if (!file) {
+				RETURN(ret, FILE_FAILED);
+				return;
+			}
 		}
 
 		off_t total_bytes_written = 0;
@@ -456,9 +452,15 @@ void write(uint32_t *ret, const void *args)
 				}
 				*(read_write_buffer + i) = byte_read;
 			}
-			filesys_enter();
-			off_t bytes_written = file_write(file, read_write_buffer, bytes_to_write);
-			filesys_exit();
+			off_t bytes_written;
+			if (fd == STDOUT_FILENO) {
+				putbuf((char *)read_write_buffer, bytes_to_write);
+				bytes_written = bytes_to_write;
+			} else {
+				filesys_enter();
+				bytes_written = file_write(file, read_write_buffer, bytes_to_write);
+				filesys_exit();
+			}
 			lock_release(&read_write_buffer_lock);
 			total_bytes_written += bytes_written;
 			if (bytes_written < bytes_to_write)

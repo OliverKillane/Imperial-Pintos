@@ -87,7 +87,7 @@ void pagedir_destroy(uint32_t *pd)
 				 * entry).
 				 */
 				default:
-					ASSERT(pte_get_type(pte_val) != MMAPPED);
+					ASSERT(pte_get_type(pte_val) != MMAPED);
 					break;
 				}
 #else
