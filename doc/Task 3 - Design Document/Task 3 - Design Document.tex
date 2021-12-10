@@ -1,0 +1,933 @@
+\documentclass{report}
+	\title{50007.3 - Laboratory - Task 3 - Design Document}
+	\author{Robbie Buxton, Jordan Hall, Bartłomiej Cieślar and Oliver Killane}
+	\date{01/12/21}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx, amssymb, amsfonts, amsmath, xcolor, listings, tcolorbox, enumerate, hyperref}
+
+\graphicspath{{image/}}
+
+\definecolor{codebackdrop}{gray}{0.9}
+\definecolor{commentgreen}{rgb}{0,0.6,0}
+\lstset{
+	inputpath=../../src/vm,
+	commentstyle=\color{commentgreen},
+	keywordstyle=\color{blue}, 
+	backgroundcolor=\color{codebackdrop}, 
+	basicstyle=\footnotesize,
+	frame=single,
+	numbers=left,
+	stepnumber=1,
+	showstringspaces=false,
+	breaklines=true,
+	postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space}
+}
+
+% COMMON TOOLS:
+\newcommand{\question}[1]{\textit{#1} \ }
+\newcommand{\sidenote}[2]{\begin{tcolorbox}[title=#1]#2\end{tcolorbox}}
+\newcommand{\bullpara}[2]{\item \textbf{#1} \ #2}
+\newcommand{\keyword}[1]{\textbf{#1}}
+
+% SYNTAX HIGHLIGHTING:
+\newcommand{\fun}[1]{\textcolor{Emerald}{\textbf{#1}}}
+\newcommand{\file}[1]{\textcolor{YellowGreen}{\textbf{#1}}}
+\newcommand{\struct}[1]{\textcolor{orange}{\textbf{#1}}}
+\newcommand{\var}[1]{\textcolor{RoyalPurple}{\textbf{#1}}}
+\newcommand{\const}[1]{\textcolor{BrickRed}{\textbf{#1}}}
+
+% CODE LISTINGS:
+% \pintoscode{startline}{endline}{title}{file}
+\newcommand{\pintoscode}[4]{\lstinputlisting[language=C, firstline = #1, firstnumber = #1, lastline = #2, title = #3]{#4}}
+
+% \pintoscode{startline}{endline}{file}
+\newcommand{\pintosfile}[3]{\pintoscode{#1}{#2}{\file{#3}}{#3}}
+
+% \codeline{language}{line}{file}
+\newcommand{\codeline}[3]{\lstinputlisting[language=#1, firstline = #2, lastline = #2]{#3}}
+
+\newcommand{\centerimage}[2]{\begin{center}
+	\includegraphics[#1]{#2}
+\end{center}}
+
+% Shorter bullet point and numbered lists
+\newcommand{\compitem}[1]{\begin{itemize}\setlength\itemsep{-0.1em}#1\end{itemize}}
+\newcommand{\compenum}[1]{\begin{enumerate}\setlength\itemsep{-0.1em}#1\end{enumerate}}
+
+\begin{document}
+	\maketitle
+
+	\section*{Group}
+		\question{Fill in the names and email addresses of your group members.}
+		\begin{center}
+			\begin{tabular}{r l}
+				\textbf{Name} & \textbf{Email} \\
+				Bartłomiej Cieślar & bc1520@ic.ac.uk \\
+				Jordan Hall & jh4020@ic.ac.uk \\
+				Oliver Killane & ok220@ic.ac.uk \\
+				Robert Buxton & rb419@ic.ac.uk \\
+			\end{tabular}
+		\end{center}
+	
+	\section*{Preliminaries}
+		\subsection*{Latex Formatting}
+		To make this document more readable, we have a consistent style:
+		\subsubsection*{D4 (5 marks)}
+		\question{This is the question's text\dots
+		\\
+		\\ \dots it can go over several lines!}
+		\\ We also have syntax highlighting for:
+		\begin{itemize}
+			\item Functions such as \fun{schedule} or \fun{init\_thread}.
+			\item Variables such as \var{num\_ready\_threads} or 
+			\var{thread\_mlfqs}.
+			\item Structures of type definitions such as \struct{thread} or 
+			\struct{ready\_queue}.
+			\item Constants and values set in define such as 
+			\const{BINARY\_POINT} and \const{PRI\_MAX}.
+			\item Files such as \file{thread.c} and \file{fixed-point.h}.
+		\end{itemize}
+		We also include code directly from the repository, so the contents, line 
+		numbers and file titles all match their respective places.
+		\pintoscode{98}{110}{\file{syscall.c}}{/../userprog/syscall.c}
+		This makes our document quicker and easier to read and mark.
+
+		\subsection*{Interesting tools we've used for the project}
+		During the project we have set up our own tools to increase the speed of
+		development. Some of the tools we used are listed below:
+
+			\subsubsection*{Continuous Integration}
+			We have set up Gitlab's CI to run the test suite on a custom Docker 
+			image designed for PintOS. This runs tests for each of the parts we 
+			have implemented. If any of these tests fail, then the branch cannot
+			merge into the master branch. This ensures that any changes
+			made to the master branch do not break the codebase.
+			
+			\subsubsection*{Linter}
+			In order to enforce a single code-style across all of our changes, 
+			we extended the makefile to include a built-in linter. The CI 
+			pipeline also includes a linting pass over all files that we have 
+			edited throughout the project. The linter we decided to use was 
+			the \textcolor{blue}{\underline{\href{https://github.com/torvalds/linux/blob/master/scripts
+			/checkpatch.pl}{checkpatch linter}}}, which we sourced from the linux codebase.
+			We settled on this linter because it most closely resembles the programming style of
+			PintOS out of the other solutions we found.
+			On top of that, it was easy to integrate with the existing makefiles.
+			
+			\subsubsection*{Formatting Scripts}
+			Paired with the linter, we have used the clang-formatter and a 
+			custom python script (see \file{pintos\_16/reformat.py}) to reformat the 
+			codebase to conform to our linter's style.
+
+			\subsubsection*{Live Code Sharing}
+			For tasks 2 and 3 we adopted a more collaborative approach. 
+			By having pairs work on a problem simultaneously using the 
+			VSCode liveshare functionality, we found that more bugs were caught 
+			early, our code quality improved, and we could develop our solution much
+			more rapidly.
+
+	\section*{Page Table/Frame Management}
+		\subsection*{Data Structures}
+			\subsubsection*{A1 (2 mark)}
+				\question{Copy here the declaration of each new or changed 
+				`struct' or `struct' member, global or static variable, 
+				`typedef', or enumeration that relates to your supplemental 
+				page table and frame table. Identify the purpose of each in 
+				roughly 25 words.}
+				
+				\centerimage{width=\textwidth}{page table entry.png}
+				We decided not to use a supplemental page table because we 
+				deemed it an unnecessary waste of memory. It turns out that, by
+				using a type of a prefix code, it is possible to place the necessary 
+				data in the paged-out entries of the page table. 
+				Storing the data about paged-out entries in the page table also has 
+				an added benefit of the page table entry being fetched into cache during
+				the TLB(Translation lookaside buffer) miss. This means that the data for it can be fetched directly from the L1 cache. 
+				This increases the performance of the page fault handler significantly. \\
+				In the case that the page is paged-in, we do not 
+				need to worry about it since we are not going to page fault on 
+				them during normal operation. When a page table entry is paged-out, it has 
+				several possible states:
+				\compitem{
+					\bullpara{Swapped entry}
+						{\\In this case, with the remaining bits that are not 
+						used for the encoding, a swap frame id is stored which 
+						is used when paging the entry in. Because there is only enough space left
+						for up to 29 bits, the maximum swap size for the swap space the system can handle is 1TB.
+						This is more than adequate for the current limit of 64MB of 
+						memory imposed by the current loader implementation.
+						}
+					\bullpara{Lazy-zeroed entry}
+						{\\In this case, the first remaining bit that is not 
+						used for the encoding determines if the zeroed page 
+						should be writable or not. The remaining bits are used 
+						for auxiliary data that the thread can use when setting 
+						up the process. This space is used in the \fun{start\_process()} in order
+						to keep the maximum mapping size for the lazy loading of
+						frames.}
+					\bullpara{Mmaped or lazy-loading entry}
+						{\\ In this case, we have 30 bits remaining for storing 
+						the pointer to the structs that manage the mmaped or 
+						lazy-loaded entries. The ISO specification ensures that 
+						all malloced structs are allocated at an address with the 
+						same alignment as the struct. Because both structs are 
+						4-byte-aligned, their pointers will also be 4-byte-aligned. 
+						This means we can discard the leading 2 bits 
+						in those pointers and fit them in the remaining space 
+						of the page table entry. To determine if the pointer is to an mmaped
+						page (\struct{user\_mmap} struct) or a lazily loaded
+						page (\struct{lazy\_page} struct) we dereference the 
+						pointer as a boolean. The first field of both structs 
+						is a boolean, false for \struct{user\_mmap} and true for 
+						\struct{lazy\_page}. We can then cast the pointer 
+						accordingly. This adds at most 4 bytes into those structs due to the 
+						alignment of fields in structs. This implementation still outweighs having to allocate a 
+						supplemental page table.}
+				}
+				It is important to note that getting a frame's page table entry is atomic.
+				This is because it means that there are no data races in
+				aquiring a frame's associated page table entry and the data related to that
+				entry.
+				
+				% frame struct (fte)
+				\pintosfile{11}{22}{frame.c}
+				\begin{center}
+					\begin{tabular}{l p{10cm}}
+						\vspace*{2mm}
+						\var{used\_elem} & This \struct{list\_elem} is used to 
+						handle the frame table entry within the 
+						\struct{used\_queue}. \\ \vspace*{2mm}
+
+						\var{is\_swappable}  & This boolean determines if the 
+						frame is to be written to swap space (stack pages and 
+						writeable lazy-loaded) with \file{swap.\{c,h\}} 
+						functions, or back to the file system (mmap system 
+						pages). \\ \vspace*{2mm}
+
+						\struct{union}  & This is a union of the data required 
+						for both swappable and mmaped pages.  \\ \vspace*{2mm}
+
+						\var{shared\_mmap}  & A pointer to the 
+						\struct{shared\_mmap} struct that owns the frame. The 
+						file, offset, 
+						length, other data required for reading from and to disk, and 
+						the page table entries using the \struct{shared\_mmap} are stored
+						here. This is for mmapped pages.
+						\\ \vspace*{2mm}
+
+						\var{pd} and \var{vpage}  & The page directory and virtual page 
+						within that directory that use the frame. (For swappable pages) 
+						\\ \vspace*{2mm}
+					\end{tabular}
+				\end{center}
+				
+				% frame table (*ftes)
+				\pintosfile{38}{38}{frame.c}
+				An array of all frame table entry (\struct{fte}) structs. 
+				This is allocated once from the kernel pool in the initialisation of the 
+				frame system \fun{frame\_init}. The size of the array is equal to the number
+				of pages in the user pool.
+				\\
+				\\ Frames are accessed using kernel addresses (This is very fast and 
+				simple to lookup).
+				\[\text{frame table index} = \cfrac{\text{frame kernel address} - 
+				\text{user pool base kernel address}}{\text{\const{PGSIZE} (
+				page size is currently 4096 bytes)}}\]
+				
+				% user_base
+				\pintosfile{41}{41}{frame.c}
+				This is used for the translations of kernel page addresses to frame 
+				table indices. It is the base address of the user pool from palloc.
+				
+				% used_queue
+				\pintosfile{53}{53}{frame.c}
+				This is a circular queue of frames currently being used, that are 
+				unlocked, they can also be evicted. Our second chance page replacement algorithm 
+				runs on this queue.
+
+				% used_queue lock
+				\pintosfile{44}{44}{frame.c}
+				This synchronizes access to the \var{used\_queue}.
+
+				% unlocked_frames semaphore
+				\pintosfile{50}{50}{frame.c}
+				In general, we represent the page-locked (page-pinned) pages as those
+				not in the \var{used\_queue} and not free in the palloc system.
+				This semaphore is used to ensure that free or unlocked frames are available in \fun{frame\_get()}.
+				If there are no free frames available from palloc and there
+				are no unlocked frames in the \var{used\_queue} that can be page replaced,
+				downing this semaphore will result in a wait until one is available. This
+				also means that, in this instance, all pages are page-locked which is extremely rare and does not
+				happen for too long, but it is still something that we need to consider.
+				
+
+		\subsection*{Algorithms}
+			\subsubsection*{A2 (2 mark)}
+				\question{Describe your code for finding the frame (if any) or 
+				other location that contains the data of a given page.} 
+				\\
+				\\We determine the location of the data for a certain page by looking up its
+				page table entry. Because fetching the data about the page table entry is atomic,
+				it is certain that the data inside page table entries are accessable without a 
+				race condition.
+				\\
+				\\When a page is lazy-loaded or lazy-zeroed we do not need 
+				to locate the page because it has not been set up yet.
+				Otherwise the page is mmaped or swappable, so there are two 
+				possible options: the frame can be locked or it can be 
+				determined not to be in memory.
+				Frames are locked with \fun{frame\_lock\_swappable()} and 
+				\fun{frame\_lock\_mmaped()}. Here, we determine if the frame can be
+				successfully locked by checking the owner pointer inside the 
+				frame table entry. If the owner supplied to the frame locking function 
+				equals the frame table entry's owner, then it can be safely locked.
+				Otherwise, there are 2 possible options for what happens 
+				next (for instance in a page-fault):
+				\compitem{
+					\bullpara{If our entry is swappable}{
+						Here if locking the page fails, it is certain that
+						it will stay inside of the swap system. This means that
+						the swap entry id from the page table entry can be used to locate it.
+						\\
+						\\ If locking succeeds then the frame can no longer be evicted 
+						by page replacement, as swappable frames (e.g a stack) are not 
+						shared, the process has exclusive access to the frame until it is unlocked.
+					}
+					\bullpara{If our entry is mmaped}{
+						Here if locking the page fails, it is uncertain 
+						if it will stay paged-in when access is required. 
+						However, because it is possible to attempt to lock the
+						frame there must be a \struct{user\_mmap} pointer 
+						to the shared page that was previously contained in that frame.
+						Therefore the \struct{shared\_mmap} that represents it can be locked, 
+						and all the necessary actions are performed while holding that lock.
+						\\
+						\\ If locking succeeds the frame can no longer be page replaced. 
+						The \struct{shared\_mmap}'s lock is then used to ensure
+						 exclusive access to the frame from the other processes sharing it.
+					}
+				}
+
+			\subsubsection*{A3 (2 mark)}
+				\question{How have you implemented sharing of read only pages?}
+				
+				We implement the sharing of read-only pages using the same 
+				system as for the sharing the mmaping pages.
+				When opening the mmap in read only mode, we block the writes to the 
+				file and mark the pages as read-only.
+				When loading the writable pages, where bytes must be read from 
+				the executable file, we lazy-load them separately. Access is 
+				denied to writing to the file until the lazy-loading has occured.
+				Lazy-zeroed pages are used for executable pages which do not 
+				load anything from the executable file.
+			
+		\subsection*{Synchronization}
+			\subsubsection*{A4 (2 mark)}
+				\question{When two user processes both need a new frame at 
+				the same time, how are races avoided? You should consider both 
+				when there are and are not free frames available in memory.}
+				
+				\compitem{
+					\item The semaphore \var{unlocked\_frames} is used 
+					to ensure that there are available frames to get from 
+					palloc or to evict.
+					\item The lock \var{used\_queue\_lock} is used to 
+					synchronize access to the \var{used\_queue}.
+				}
+				\compenum {
+					\bullpara{Down \var{unlocked\_frames} semaphore}{
+						\\ If there are no free or unlocked pages in used\_queue, 
+						the process waits until one is present. 
+						Frame locking using \fun{frame\_lock\_mmaped} and 
+						\fun{frame\_lock\_swappable} also down this semaphore. This is
+						to prevent race conditions with getting the frame.
+					}
+					\bullpara{Poll palloc for free frames}{
+						\\ If \fun{palloc\_get\_page(\const{PAL\_USER})} returns
+						a page, we can return it. It is not in 
+						\var{used\_queue} so it is frame locked and 
+						synchronized on the palloc system. If it returns
+						\const{NULL}, then the only available frames are unlocked
+						frames so the second chance algorithm is run.
+					}
+					\bullpara{Get access to \var{used\_queue} through \var{used\_queue\_lock}}{
+						\\ A lock is used to enforce exclusive access to the 
+						\var{used\_queue} in every instance of frame locking,
+						frame unlocking, and getting the frame or freeing it. This prevents race 
+						conditions occuring when frames are being used.
+					}
+					\bullpara{Choose the frame for eviction}{
+						\\ The second chance algorithm selects a frame,
+						removes it from the \var{used\_queue}. For the
+						specifics of its operations please refer to the answer
+						to question B2.
+					}
+					\bullpara{Release exclusive access to \var{used\_queue} and evict the data from the frame}{
+						\\ The \var{used\_queue\_lock} is released by the relevant eviction function once it is safe to do so.
+						\compitem{
+							\bullpara{For swappable pages}{
+								\fun{swap\_page\_evict()} gets exclusive access to the swap through
+								the \var{swap\_lock}. It then releases the \var{used\_queue\_lock} once the free swap slot is
+								taken and the page table entry is updated. Once the write to swap
+								is complete, the \var{swap\_lock} is released.
+							}
+							\bullpara{For mmaped pages}{
+								\fun{mmap\_frame\_evict()} gets exclusive access to the mmap via the
+								\struct{shared\_mmap} lock. Right after that, \var{used\_queue\_lock} is released.
+								Once data is written to the file, the \struct{shared\_mmap} lock is released.
+							}
+						}	
+					}
+					\bullpara{Return frame}{
+						\\ The frame is not in the \var{used\_queue} and therefore
+						is frame locked and cannot be evicted.
+						This means it is safe to use for loading.
+					}
+				}
+				If two processes call \fun{frame\_get()} at the same time, and 
+				there are at least 2 frames free or unlocked, both processes 
+				will be able to \fun{sema\_down()} the \var{unlocked\_frames} 
+				semaphore without waiting.
+				\\
+				\\ Otherwise a process may have to wait until some frames are 
+				free or unlocked, although this is extremely rare.
+				\\
+				\\ The processes access palloc, which is synchronized internally.
+				If either get a frame, then it is returned.
+				\\ 
+				\\ Otherwise if there are not enough free frames, then a 
+				process will need to get frames by page replacement. 
+				The \var{used\_queue\_lock} ensures only one process can remove
+				the page from the \var{used\_queue} at a time (although
+				this is not the reason why the race conditons for IO on the
+				specific pages that are evicted cannot happen, whether it is
+				for shared mmaps or for the swap partition).
+			
+		\subsection*{Rationale}
+			\subsubsection*{A5 (2 mark)}
+				\question{Why did you choose the data structure(s) that you did for 
+				representing the supplemental page table and frame table?}
+
+				\textbf{Design of the frame table:}
+				\\ We reduced our design down to two main options.
+				\\ \begin{minipage}[t]{0.45\textwidth}
+					\centerline{An array based, single allocation table}
+					\textcolor{green}{
+						\compitem{
+							\item It requires only one memory allocation.
+							\item It has very fast lookup times using pointer
+							arithmetic.
+							\item It never fails to allocate a new frame.
+							\item It is cached during a TLB miss, so fetching it
+							      in a page fault happens directly from the cache.
+						}
+					}
+					\textcolor{red}{
+						\compitem{
+							\item All frame table entries are allocated, even 
+							when very few are being used. This leads to higher 
+							memory usage.
+							\item A lot more complicated synchronization,
+							      since locking a lot of resources locklessly is
+								  required.
+						}
+					}
+				\end{minipage}
+				\hfill
+				\begin{minipage}[t]{0.45\textwidth}
+					\centerline{A hashmap with dynamically allocated entries}
+					\textcolor{green}{
+						\compitem{
+							\item It only uses memory for the frames being used.
+						}
+					}
+					\textcolor{Red}{
+						\compitem{
+							\item It has higher maximum memory usage when all 
+							frames are in memory. It must also store a hashmap.
+							\item It has a slower lookup time because it requires 
+							hashing and potentially iterating through buckets 
+							in the hashmap.
+							\item The new frames require multiple allocations.  
+							One is needed for the frame itself and the other for
+							the hashmap.
+							\item The frame allocations can fail.
+							\item The hashmap insertions can require mallocs. 
+							Failures on those mallocs can degrade the hashmap's
+							performance.
+							\item The freeing of frames is slower and 
+							requires a call to \fun{free()} for the table entry.
+						}
+					}
+				\end{minipage}
+				In the end an array based, singularly-allocated frame table was 
+				chosen for its superior performance. We considered the main 
+				drawback, higher memory usage when there 
+				are very few used frames, to be negligable.
+				This is because the frame table only uses $\approx 2.5$ kernel pages out of 367
+				in the testing environment (assuming default storage size settings).
+				\\
+				\\ Furthermore, kernel memory usage only becomes an issue when 
+				running many processes or using many pages. Examples include
+				mmaps, file I/O, and when there are lots of child processes. 
+				Under these conditions our design will be much faster and 
+				potentially use even less memory if the number of used user 
+				frames is large enough.
+				
+				\textbf{Lack of a Supplemental Page Table}
+				\\As previosuly mentioned, we decided to encode necessary 
+				information for non-present pages directly into the page table.
+				\\
+				\\ The benefits to this approach include:
+				\compitem{
+					\item Significantly lower memory usage
+					\item Caching of page information during page faults
+					\item Single load operations to get the required page information
+				}
+				
+	\section*{Paging To And From Disk}
+		\subsection*{Data Structures}
+			\subsubsection*{B1 (1 mark)}
+				\question{Copy here the declaration of each new or changed 'struct' or
+				'struct' member, global or static variable, 'typedef', or enumeration 
+				that relates to your swap table. Identify the purpose of each in roughly
+				25 words.}
+				
+				\pintosfile{10}{10}{swap.c}
+				This is the helper value for when writing pages to swap slots, where each swap 
+				slot contains \const{BLOCKS\_PER\_PAGE} blocks.
+
+				% swapid_t
+				\pintosfile{9}{9}{swap.h}
+				The type definition to make swap index distinct from \struct{uint\_32}.
+				
+				% is_free_tree
+				\pintosfile{12}{12}{swap.c}
+					We decided to use an interval tree for determining if a 
+					swap slot is empty. For a swap space of size $n$ 
+					(where $n$ is twice the the number of real swap slots
+					rounded up to the nearest power of 2), the bitmap for the 
+					interval tree is of size $2 \times n$. The interval tree 
+					allows us to find a free page in $log(n)$ steps.
+				
+				% is_writeable
+				\pintosfile{13}{13}{swap.c}
+					This is a simple bitmap for checking if the swapped frame 
+					is writable or not. It is indexed in constant time.
+
+				% swap_lock
+				\pintosfile{15}{15}{swap.c}
+					The \var{swap\_lock} synchronizes the \var{is\_free\_tree}. 
+					It also synchronizes reading and writing to the swap block 
+					device. Because synchronisation over the swap block device 
+					is separate to the rest of the file system, this allows the two 
+					systems to be written-to/read-from at the same time.
+
+		\subsection*{Algorithms}
+			\subsubsection*{B2 (2 mark)}
+				\question{When a frame is required but none is free, some frame 
+				must be evicted. Describe your code for choosing a frame to 
+				evict.}
+				\\
+				\\ When we want to aquire a frame in \fun{frame\_get()} and none
+				are free, we decide on a page to evict using a second-chance 
+				algorithm via a circular queue implemented with a linked list. 
+				When we want to find a candidate frame for eviction, we check the
+				front of the queue. If the accessed bit (or the disjunction of
+				accessed bits in the case of shared pages) for the frame is 1,
+				then we reset the accessed bit(s) to 0 and put the frame to the back
+				of the queue. If the accessed bit(s) for the frame is 0, then we evict
+				the frame and return the new page.
+			
+			\subsubsection*{B3 (2 mark)}
+				\question{When a process P obtains a frame that was previously 
+				used by a process Q, how do you adjust the page directory of
+				process Q (and any other data structures) to reflect the frame 
+				Q no longer has?}
+				\\
+				\\ In the frame evition we acquire the \var{used\_queue\_lock}.
+				Then we lock Q's frame which is being evicted.
+				We also acquire the relevant lock for eviction of the frame 
+				prior to releasing the \var{used\_queue\_lock}. This is so we 
+				can allow further evictions without race conditions on writing 
+				back or reading from the swap/shared mmap's page in it file.
+				
+				\compenum {
+					\item Before writing Q's page to swap or disk, 
+					the relevant page table entries as marked as evicted.
+					\item \compitem{
+						\bullpara{Swappable}
+						{Write swap slot ID to Q's page table entry}
+						\bullpara{Mmap}
+						{Write \struct{user\_mmap} pointers to all relevant page
+						table entries}}
+					\item As a result Q or any other process using the frame 
+						will page fault on access, and wait on the 
+						\var{used\_queue\_lock} before loading the data back.
+						This means there is no race condition on accessing
+						pages as they are evicted.
+					\item Next we give the locked frame to process P. Process P 
+						can then use \fun{swap\_load()} or \fun{mmap\_load()} to 
+						load the required data to the frame (in case of the latter
+						fetching the frame happens inside of it).
+					\item First the data is loaded to the frame, then the 
+						relevant page table entry is set in P. Finally the frame
+						is unlocked and can be evicted, and P resumes.
+				}
+				Page table entries are set in a single store operation which is 
+				atomic to avoid race conditions on page table entries in the 
+				format specified and explained in A1.
+
+		\subsection*{Synchronization}
+			\subsubsection*{B4 (2 mark)}
+				\question{Explain how your synchronization design prevents deadlock.
+				(You may want to refer to the necessary conditions for deadlock.)}
+				% UPDATE THE DEADLOCK DIAGRAMS
+				% ARGUE WHY WE WILL NOT HAVE A DEADLOCK IN MMAP.C IN MMAP_LOAD
+				The 4 conditions for a deadlock are:
+				\compitem{
+					\bullpara{Mutual exclusion}{Each resource is either available or assigned to exactly one process}
+					\bullpara{Hold and wait}{A process can request resources while it holds other resources}
+					\bullpara{No preemptions}{When resources given to a process cannot be forcibly revoked or borrowed}
+					\bullpara{Circular wait}{When two or more processes are in a circular chain, each waiting for a resource held by the next process}
+				}
+				The only synchronization methods that fit the first 3 conditions are locks and semaphores which are used throughout the virtual memory system.
+				Those however, when acquired simultaneously, are always acquired in the same order (except for one spot which shall be explained later). 
+				If we imagine a graph of all possible nestings or chainings that can occur in our system, based on the lock/semaphore acquisition diagrams shown below, 
+				it will be a DAG (Directed Acyclic Graph) (again, except for that one spot). The only possible synchronization primitive chains or nestings longer than 1 are:
+				\compitem{
+					\bullpara{\fun{frame\_get()} evicting a swapped page and paging in a swappable or mmaped page and unlocking it}{
+						\compenum{
+							\item \var{unlocked\_frames}
+							\item \var{used\_queue\_lock}
+							\item \var{swap\_lock}
+						}
+					}
+					\bullpara{\fun{frame\_get()} evicting an mmaped page and paging in a swappable or mmaped page and unlocking it}{
+						\compenum{
+							\item \var{unlocked\_frames}
+							\item \var{used\_queue\_lock}
+							\item \var{shared\_mmap$\to$lock}
+							\item \var{filesys\_lock}
+						}
+					}
+					\bullpara{Either \fun{frame\_lock\_mmaped()} or \fun{frame\_lock\_shared()} locking a page}{
+						\compenum{
+							\item \var{unlocked\_frames}
+							\item \var{used\_queue\_lock}
+						}
+					}
+					\bullpara{Either \fun{mmap\_register()} or \fun{mmap\_unregister()} managing the mmapings}{
+						\compenum{
+							\item \var{mmaps\_lock}
+							\item \var{shared\_mmap$\to$lock}
+							\item \var{filesys\_lock}
+						}
+					}
+					\bullpara{\fun{mmap\_load()} loading an mmaping}{
+						\compenum{
+							\item \var{mmaps\_lock}
+							\item \var{used\_queue\_lock}
+							\item \var{filesys\_lock}
+						}
+					}
+					\bullpara{\fun{read()} or \fun{write()} syscall}{
+						\compenum{
+							\item \var{read\_write\_buffer\_lock}
+							\item \var{filesys\_lock}
+						}
+					}
+				}
+				The only possible deadlock that can happen is between \fun{mmap\_load()} and \fun{frame\_get()}.
+				Here, we need to get a new frame inside of a \var{shared\_mmap$\to$lock}. 
+				However, calling \fun{frame\_get()} there will not cause a
+				deadlock. This is because a check is done right above calling that function to ensure that the \var{shared\_mmap} is not
+				already loaded. Moreover, this \var{shared\_mmap} can only be loaded in by this very function in which there
+				is a lock acquired, so the property (the shared mmap not being loaded there) is synchronised for that \var{shared\_mmap}.
+				\\
+				\\This means that it is not possible for it to be accessed from \fun{frame\_get()}, and that is why there is actually
+				no circular acquisition there and, in terms of separate \struct{shared\_mmap}s, our locking dependency graph is still a DAG.
+				\\
+				\\ Therefore, because no resources can be acquired in a circular
+				chain by the definition of a DAG, no deadlock can occur.
+				\\
+				\\The following diagrams show the locking and unlocking of all locks used in the virtual memory and syscall system.
+				\\
+				\begin{minipage}{\textwidth}
+					The legend for following diagrams:
+					\centerimage{width=\textwidth}{synch legend.png}
+				\end{minipage}
+				\begin{minipage}{\textwidth}
+					Loading a new child process:
+					\centerimage{width=\textwidth}{synch load.png}
+				\end{minipage}
+				\begin{minipage}{\textwidth}
+					Mmap register and unregister handling:
+					\centerimage{width=\textwidth}{synch mmap.png}
+				\end{minipage}
+				\begin{minipage}{\textwidth}
+					Page faulting and getting a new frame from the pool:
+					\centerimage{width=\textwidth}{synch page fault.png}
+				\end{minipage}
+
+				\begin{minipage}{\textwidth}
+					Syscall handling:
+					\centerimage{width=\textwidth}{synch syscall.png}
+				\end{minipage}
+
+				\begin{minipage}{\textwidth}
+					Thread exit handling:
+					\centerimage{width=\textwidth}{synch thread exit.png}
+				\end{minipage}
+				
+			\subsubsection*{B5 (2 mark)}
+				\question{A page fault in process P can cause another process Q's frame to
+				be evicted. How do you ensure that Q cannot access or modify the page 
+				during the eviction process?)}
+				\\
+				\\As stated in the answer to question B3, we flag Q's frame as evicted 
+				before writing it to swap. It is important to note that modifying the 
+				page table entry of Q's page to mark it as evicted is atomic. We
+				only write the Q's frame's data after marking it as evicted. This is 
+				so no data races can occur between Q's page being set as evicted and Q's 
+				attempts to modify or access data in its page.
+				
+			\subsubsection*{B6 (2 mark)}
+				\question{A page fault in process P can cause another process Q's frame
+				to be evicted. How do you avoid a race between P evicting Q's frame and 
+				Q faulting the page back in?}
+				\\
+				\\ When evicting a frame, we maintain exclusive access to the 
+				\var{used\_queue} for the minimum time possible by acquiring 
+				the \var{used\_queue\_lock} and passing it to either
+				\fun{swap\_page\_evict()} or \fun{mmap\_frame\_evict()}. 
+				\\
+				\\In the case of the swap, the eviction function releases
+				\var{swap\_lock} after it has finished writing the evicted frame
+				to swap. Therefore, if Q attempts to load the page back in 
+				from swap, it must wait until P has finished writing Q's 
+				frame to swap. This is because the \var{swap\_lock} must also be 
+				acquired in \fun{swap\_load()} in order to load the data from 
+				swap.
+				\\ In the case of evicting an mmap, since the synchronisation on
+				accesses to its associated page table entries is either only
+				needed without any requirement for bigger synchronization, or
+				done with the \var{shared\_mmap$\to$lock} acquired. Moreover, the data
+				loads and writes for that mmap are done inside that shared mmap lock
+				as well, so there is no race there either (ergo P must wait until
+				Q has finished writing the data to the filesystem before loading).
+
+			\subsubsection*{B7 (2 mark)}
+				\question{Explain how you handle access to user pages that are not 
+				present when a system call is made.}
+				\\
+				\\ We use a system similar to what we used in task 2.
+				We use the \fun{put\_user()} and \fun{get\_user()} functions that
+				can put a character to the user page, or get it respectively. Then,
+				using those functions, we safely copy the data between the user's buffer and a buffer inside of kernel (\var{read\_write\_buffer}). 
+				\\
+				\\If the page that we are reading or writing from to
+				is present, then those calls will pass through easily. Otherwise,
+				one of the following can occur:
+				\compitem{
+					\bullpara{We successfully page that data in}{
+					\\ In this case we return to the \fun{put\_user()} or \fun{get\_user()} call
+					and proceed as if that data was paged-in.}
+					\bullpara{We fail to page any page in}{
+					\\ In this case we inform the \fun{put\_user()} or \fun{get\_user()} that fetching
+					the data has failed.}
+				}
+				For read and write syscalls, we copy the intermediate data to the \var{read\_write\_buffer}. 
+				This buffer is shared between all read and write syscalls. This is because the writes
+				to the filesystem are coarsly synchronized already and having different buffers for the writes and reads
+				could potentially make them fail more often in a higher system congestion situation. The buffer is
+				synchronized on accesses to it using the \var{read\_write\_buffer\_lock}.
+				\\
+				\\ This buffer ensures we cannot page fault when reading/writing inside the \var{filesys\_lock}. 
+				This is important as a page fault may require this lock in order to page-in (e.g lazily loaded page or mmap).
+			
+		\subsection*{Rationale}
+			\subsubsection*{B8 (2 mark)}
+				\question{There is an obvious trade-off between parallelism and the 
+				complexity of your synchronisation methods. Explain where your design 
+				falls along this continuum and why you chose to design it this way.}
+				\\
+				\\Our primary goals were high performance, and low memory utilisation, with parallelism 
+				being a secondary objective. Hence, we tried to implement the synchronisation without significant costs
+				to the performance of our system. 
+				\\
+				\\This means that accesses to data that is frequently aliased had to be either 
+				synchronized with few locks (e.g frame locking) or with a coarser lock (e.g swap system).
+				Usually this did not result in a large loss in potential parallelism, for example with 
+				the swap system, only one block device \const{SWAP\_BLOCK} is used, which is internally locked coarsely as well.
+				\\
+				\\ However, we were able to allow for 'simultaneous' operation of mmap page-in, mmap page-out, 
+				lazy-loading and the swap system, by retaining locks only when needed to prevent race conditions 
+				on data structures such as our \var{used\_queue} and page table entries.
+				\\
+				\\In terms of optimizing sychronization, we decided that the page-faulting is the
+				most time-critical section of our system. We wanted to make the synchronisation
+				there as fine-grained as possible without worrying about the speed of the other parts of the
+				code in which we manage aspects of virtual memory. Such parts include setting up
+				the executable for a new process, exiting a process, or mmaping a file to user's memory.
+				\\
+				\\ As far as the general idea of our synchronization goes, wherever an access to user's page table entry is required,
+				it is done atomically to ensure no race-conditions occur. There is a similar case for the framing system,
+				where an inconsistency between the page table entry that has just been fetched is allowed. This enforces a need for
+				failing to lock a frame. On the other hand, this allows for not having locks for page table entries at all. As a result, in all places
+				where there are accesses to page table entries, any race conditions on them are irrelevant or solved some other way.
+				\\
+				\\Then there accesses to the framing system, which are chained with accesses to the mmaping and swapping systems.
+				Those need to be chained to prevent potential race conditions between setting the page table entries during eviction and accessing those systems.
+				
+	\section*{Memory Mapped Files}
+		\subsection*{Data Structures}
+			\subsubsection*{C1 (1 mark)}
+				\question{Copy here the declaration of each new or changed `struct' or 
+				`struct' member, global or static variable, `typedef', or 
+				enumeration that relates to your file mapping table. Identify 
+				the purpose of each in roughly 25 words.}
+				The mmaping system has 4 major functionalities:
+				\compitem{
+					\bullpara{Registering a user to mmaped pages}{}
+					\bullpara{Unregistering a user to mmaped pages}{}
+					\bullpara{Evicting an mmaped page}{}
+					\bullpara{Loading an mmaped page}{}
+				}
+				When registering an mmap for a user, \struct{user\_mmap} is used
+				for that task. It represents a handle for the user to a \struct{shared\_mmap}
+				it uses. Then, if there is a \struct{shared\_mmap} that matches the mmaping being registered,
+				then the \struct{user\_mmap} is added to it. Two mmappings match when their length within a page, offset in 
+				the file, the inode for that file and writability are the same. Otherwise, a new 
+				\struct{shared\_mmap} is constructed and the \struct{user\_mmap} is added to the list of \var{user\_mmaped\_pages}.
+				\\
+				\\ When unregistering an mmap for the user, the pointer to the \struct{user\_mmap} is obtained
+				by using the list containing the \var{mmap\_id\_elem}s. Then, the pointer to the specific \struct{shared\_mmap}
+				is obtained from the pointer to it in \struct{user\_mmap}. Then, a check is done in a synchronized way on if
+				the \struct{user\_mmap} that is being unregistered is the last one registered for that \struct{shared\_mmap}. If not,
+				then just \struct{user\_mmap} gets removed from that \struct{shared\_mmap}. Otherwise, \struct{shared\_mmap} is destroyed as well.
+				\\
+				\\ When paging an mmaping out, first all of the \struct{user\_mmap}s that are inside the \var{used\_mmaped\_pages} list have their
+				page table entries set to evicted, and only then is the data about that page written back to the file.
+				\\
+				\\ When paging an mmaping in, we do the reverse.
+				First, we obtain the pointer to the \struct{user\_mmap}
+				by using the list holding the \var{mmap\_id\_elem}s. Then, we obtain the pointer to the specific \struct{shared\_mmap}
+				from the pointer to it in \struct{user\_mmap}. Next, we check if 
+				the mmaping has not been loaded in yet. Then the mmaping is written back to the given page. 
+				Finally, all of the \struct{user\_mmap}s in the \var{used\_mmaped\_pages} have their page table entries set to paged in.
+				
+				% mmaps
+				\pintosfile{37}{37}{mmap.c}
+				A hash map of all the \struct{shared\_mmap} instances. This is used for 
+				sharing the mmapings in \fun{mmap\_register()}.
+
+				% mmaps_lock
+				\pintosfile{40}{40}{mmap.c} 
+				The lock for the hash map above.
+				
+				% shared_mmap
+				\pintosfile{45}{57}{mmap.c}
+				This handles a page sized block of an mmaped file, with a list of all 
+				\struct{user\_mmap}s using it. \\
+				\begin{center}
+					\begin{tabular}{l p{10cm}}
+							\vspace*{2mm}
+							\var{mmap\_system\_elem}  & A \struct{hash\_elem} that is the elem for \struct{mmaps} \\ \vspace*{2mm}
+							\var{*file}               & A \struct{file} that is the write-back file. This is also used for identification \\ \vspace*{2mm}
+							\var{file\_offset}        & An \struct{off\_t} that is the offset in the file that we are mapping \\ \vspace*{2mm}
+							\var{length}              & An \struct{int16\_t} that is the length of the chunk of the file that we are mapping \\ \vspace*{2mm}
+							\var{writable}            & A \struct{bool} represents if the mapping should be writable or not \\ \vspace*{2mm}
+							\var{dirty}               & A \struct{bool} represents if any of the removed users had their dirty bit set \\ \vspace*{2mm}
+							\var{lock}                & A \struct{lock} that is the general lock used for this \struct{shared\_map}\\ \vspace*{2mm}
+							\var{used\_mmaped\_pages} & A \struct{list} that is the list of all users of that mmap \\ \vspace*{2mm}
+					\end{tabular}
+				\end{center}
+				
+				% user_mmap
+				\pintosfile{60}{67}{mmap.c}
+				This handles the user's page table entry for an mmaped page. \\
+				\begin{center}
+					\begin{tabular}{l p{10cm}}
+							\vspace*{2mm}
+							\var{is\_lazy}            & A \struct{bool} used to determine if this struct is a \struct{lazy\_load} or \struct{user\_mmap}.
+							This is always set to \const{false.} \\ \vspace*{2mm}
+							\var{mmap\_id\_elem}      & A \struct{list\_elem} used for either the list of pages for an mmaping or the list of executable mmapings. \\ \vspace*{2mm}
+							\var{shared\_mmap\_elem}  & A \struct{list\_elem} used for the \var{used\_mmaped\_pages} in \struct{shared\_mmap} \\ \vspace*{2mm}
+							\var{*shared\_mmap}       & A \struct{shared\_mmap} that is the manager of the shared page for this mmap \\ \vspace*{2mm}
+							\var{*pd}                 & A \struct{uint32\_t} pointer to the page directory of the process that owns that \struct{user\_mmap} \\ \vspace*{2mm}
+							\var{*vpage}              & A \struct{void} pointer to the user page that this \struct{user\_mmap} manages \\ \vspace*{2mm}
+					\end{tabular}
+				\end{center}
+
+				% lazy_load
+				\pintosfile{8}{13}{lazy.c}
+				The struct used to store lazy-loaded pages which have not been loaded from the disk yet. They become swappable pages when
+				they are loaded into memory.  \\
+				\begin{center}
+					\begin{tabular}{l p{10cm}}
+							\vspace*{2mm}
+							\var{is\_lazy}        	& A \struct{bool} used to determine if the page is loaded lazily. Should always be set to true. \\ \vspace*{2mm}
+							\var{*file}      		& A pointer to a \struct{file} that the page is sourced from. \\ \vspace*{2mm}
+							\var{file\_offset}  	& An \struct{off\_t} that is the place in the file where this lazy-loaded page starts. \\ \vspace*{2mm}
+							\var{length}       		& A \struct{uint16\_t} that is the number of bytes of the file to read and store in the page. \\ \vspace*{2mm}
+					\end{tabular}
+				\end{center}
+
+
+		\subsection*{Algorithms}
+			\subsubsection*{C2 (2 mark)}
+				\question{Explain how you determine whether a new file mapping overlaps 
+				with any existing segment and how you handle such a case.}
+				\\
+				\\ This case is handled by checking the type of the PTE before registering an mmaped page on it.
+				If the type is \const{NOTSET} then it must be true that no page is registered on it.
+				This holds true since any sequence of page-ins or page-outs will not change the status of
+				the PTE from/to \const{NOTSET}; the only place where it happens is when a process is loaded or exits.
+				In this case, it is not happening at the instance where the mmaping is being installed. Moreover, accesses
+				to the value of PTEs are atomic, so checking its type does not cause any synchronisation issues.
+				\\
+				\\ The mmaped pages are registered sequentially for the whole mmaping. If one of them fails, as described above, then
+				all mmaped pages are unregistered and the mmaping function returns \const{$-1$}. Otherwise, the malloced list of mmapings
+				is assigned to the first empty entry in the vector of mmapings. If no spot is empty, then it is pushed back to the vector of mmapings. Then, the
+				index for that mmaping is returned. Since mmaped pages reopen the files separately, the original file used for mmaping can be safely closed
+				without breaking the mmapings associated with it.
+			
+			\subsubsection*{C3 (2 mark)}
+				\question{Mappings created with "mmap" have similar semantics to those of 
+				data demand-paged from executables. How does your code-base take advantage 
+				of this?}
+				\\
+				\\ We implemented paging of the read-only pages in executables using our mmaping system.
+				Our mmaping system shares frames, and is lazily-loaded so fit the specification for this purpose.
+				\\
+				\\ There are several advantages to using the mmaping system.
+				\compitem{
+					\item Less code was required, as we could simply reuse our \fun{mmap\_register} and \fun{mmap\_unregister} functions.
+					\item Better testing, as tests for mmaping also functioned as tests for our executable loading, and vice versa.
+					\item Bonus of less memory usage by the mmaping system (as it is sharing pages).
+				}
+				As a result, we have three different types of non-present pages
+				that we use for executable loading:
+				\compitem{
+					\bullpara{lazy-zeroed}{
+						\\Used for empty executable pages and the stack}
+					\bullpara{lazy-loaded}{
+						\\Writable pages that lazily load from the disk, used for 
+						executable pages that are writable, but contain data to be
+						read from the file. Once loaded they are treated as swappable
+						pages (much like stack pages).}
+					\bullpara{mmaped}{
+						\\Mmaped page, can be read-only (used by executable loading,
+						denies writes to the file), or read/write (noram mmaps
+						gained through a \fun{mmap} syscall).}
+				}
+
+				\begin{minipage}{\textwidth}
+					A diagram illustrating why we need the three pages:
+					\centerimage{width=\textwidth}{executable load.png}
+				\end{minipage}
+				
+
+\end{document}

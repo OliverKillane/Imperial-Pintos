@@ -57,7 +57,6 @@ static inline void *fte_to_kpage(struct fte *fte);
 
 static inline bool frame_was_accessed(struct fte *entry);
 static inline void frame_reset_accessed(struct fte *entry);
-static inline void frame_evict(struct fte *entry, void *page);
 static void frame_reset(struct fte *entry);
 
 /* Initialise the frame system. Palloc must be initialised. */
@@ -86,34 +85,44 @@ void *frame_get(void)
 	if (new_page)
 		return new_page;
 
-	/* If there are no free frames available, must evict a page & replace. */
+	/* If there are no free frames available, must evict a page & replace.
+	 * Run second chance algorithm, using USED_QUEUE as a circular queue.
+	 * The frame_was_accessed() and frame_reset_accessed() functions check for
+	 * access of mmaps (requires accessing multiple page directories),
+	 * swappable frames.
+	 */
 	lock_acquire(&used_queue_lock);
 	struct fte *evictee;
 	void *page;
-	{
-		/* Run second chance algorithm, using USED_QUEUE as a circular queue.
-		 * FRAME_WAS_ACCESSED and FRAME_RESET_ACCESSED functions check for
-		 * access of mmaps (requires accessing multiple page directories),
-		 * swappable frames.
-		 */
-		struct list_elem *evictee_elem = list_pop_front(&used_queue);
+	struct list_elem *evictee_elem = list_pop_front(&used_queue);
+	evictee = list_entry(evictee_elem, struct fte, used_elem);
+	page = fte_to_kpage(evictee);
+
+	while (frame_was_accessed(evictee)) {
+		frame_reset_accessed(evictee);
+		list_push_back(&used_queue, evictee_elem);
+
+		evictee_elem = list_pop_front(&used_queue);
 		evictee = list_entry(evictee_elem, struct fte, used_elem);
 		page = fte_to_kpage(evictee);
+	}
 
-		while (frame_was_accessed(evictee)) {
-			frame_reset_accessed(evictee);
-			list_push_back(&used_queue, evictee_elem);
+	/* Evict the frame, and reset ownership. */
+	if (evictee->is_swappable) {
+		uint32_t *pd = evictee->pd;
+		void *vpage = evictee->vpage;
 
-			evictee_elem = list_pop_front(&used_queue);
-			evictee = list_entry(evictee_elem, struct fte, used_elem);
-			page = fte_to_kpage(evictee);
-		}
-
-		/* Evict the frame, and reset ownership. */
-		frame_evict(evictee, page);
 		frame_reset(evictee);
-	};
-	lock_release(&used_queue_lock);
+
+		swap_page_evict(page, pd, vpage, &used_queue_lock);
+		ASSERT(!lock_held_by_current_thread(&used_queue_lock));
+	} else {
+		void *shared_mmap = evictee->shared_mmap;
+
+		frame_reset(evictee);
+
+		mmap_frame_evict(page, shared_mmap, &used_queue_lock);
+	}
 
 	/* Return the locked frame (cannot be evicted). */
 	return page;
@@ -150,15 +159,17 @@ void *frame_get(void)
 /* Lock a frame containing an mmaped page. */
 bool frame_lock_mmaped(struct shared_mmap *shared_mmap, void *kpage)
 {
-	/* If down attempt successful:
-	 *   There are >=1 unlocked or free frames, so we continue to determine if we
-	 *   can lock the frame.
-	 * If down attempt unsuccessful:
-	 *   There are no unlocked used frames, so the frame must have been evicted
-	 *   out or locked already.
+	/* We cannot optimize this SEMA_DOWN() away here because, by the time this
+	 * function exits, it is crucial that the USED_QUEUE_LOCK has been released
+	 * during the potential eviction in FRAME_GET() and that acquiring the
+	 * lock for the specific page that we are evicting there will corelate the
+	 * state that this function has returned and whether the page we were trying
+	 * to lock is paged-in or paged-out.
+	 *
+	 * For the specific reasons of this reliance in this function please refer
+	 * to the comments in MMAP_UNREGISTER() and MMAP_FRAME_EVICT() in mmap.c
 	 */
-	if (!sema_try_down(&unlocked_frames))
-		return false;
+	sema_down(&unlocked_frames);
 	lock_acquire(&used_queue_lock);
 	struct fte *frame = kpage_to_fte(kpage);
 
@@ -183,8 +194,19 @@ bool frame_lock_mmaped(struct shared_mmap *shared_mmap, void *kpage)
 /* Lock a frame containing swappable page (e.g stack page). */
 bool frame_lock_swappable(uint32_t *pd, void *vpage, void *kpage)
 {
-	if (!sema_try_down(&unlocked_frames))
-		return false;
+	/* We cannot optimize this SEMA_DOWN() here because, by the time this
+	 * function exits, it is crucial that the USED_QUEUE_LOCK has been released
+	 * during the potential eviction in FRAME_GET() and that acquiring the
+	 * lock for the specific page that we are evicting there will corelate the
+	 * state that this function has returned and whether the page we were trying
+	 * to lock is paged-in or paged-out.
+	 *
+	 * In this case, this has to do with the PAGEDIR_DESTROY() using this function
+	 * to check whether the page has been evicted to swap or not and whether it
+	 * can safely assume that, if this function fails, it can grab the swap id
+	 * that the page that is being locked here has been evicted to.
+	 */
+	sema_down(&unlocked_frames);
 	lock_acquire(&used_queue_lock);
 	struct fte *frame = kpage_to_fte(kpage);
 
@@ -291,13 +313,4 @@ static inline void frame_reset_accessed(struct fte *entry)
 		swap_page_reset_accessed(entry->pd, entry->vpage);
 	else
 		mmap_frame_reset_accessed(entry->shared_mmap);
-}
-
-/* Evict a frame, delegating to the function for the type of frame. */
-static inline void frame_evict(struct fte *entry, void *page)
-{
-	if (entry->is_swappable)
-		swap_page_evict(page, entry->pd, entry->vpage);
-	else
-		mmap_frame_evict(page, entry->shared_mmap);
 }
