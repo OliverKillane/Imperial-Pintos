@@ -65,6 +65,7 @@ void swap_page_evict(void *kpage, uint32_t *pd, void *vpage,
 	/* Find the first free swap slot. */
 	lock_acquire(&swap_lock);
 
+
 	int32_t node = 1;
 	if (!bitmap_test(is_free_tree, node))
 		PANIC("Ran out of swap space.");
@@ -93,6 +94,10 @@ void swap_page_evict(void *kpage, uint32_t *pd, void *vpage,
 	if (!pagedir_set_swapped_page(pd, vpage, new_swap_id))
 		NOT_REACHED();
 
+	/* We need to chain those locks because of a guarantee in pagedir_destroy
+	 * that, if a frame lock fails on a swappable page, then that means that it
+	 * is in the swap (its page table entry is set to a field in swap).
+	 */
 	lock_release(used_queue_lock);
 
 	/* Write the page to the allocated swap block */

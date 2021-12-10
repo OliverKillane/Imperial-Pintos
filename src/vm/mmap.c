@@ -263,14 +263,49 @@ void mmap_unregister(struct user_mmap *user_mmap)
 	/* We acquire this lock to ensure that no one can register themselves into
 	 * the SHARED_MMAP while we are evicting it, and no other processes can search
 	 * the MMAPs hashmap for the SHARED_MMAP (as we may remove it).
+	 * 
+	 * We also need this lock to be able to assume that the number of users of
+	 * this shared_mmap will not have changed between the line below where
+	 * we are frame locking and the time where we are testing if we are the
+	 * sole user of that shared_mmap.
 	 */
 	lock_acquire(&mmaps_lock);
+
+	/* The assumption here is that if in the future we are the lone user
+	 * of that shared_mmap, and this frame_lock has failed, then the mmap will
+	 * have been both paged out and any potential frame evicitons 
+	 * (MMAP_FRAME_EVICT) finished.
+	 * 
+	 * If we did not acquire the mmaps_lock above, then it could have been that
+	 * the number of users would have changed by the time we get to 
+	 * LIST_ELEM_ALONE, so our assumption about the retroactive implication of a
+	 * state that we will be in is broken - we will not have been able to make 
+	 * assumptions about the present state based on the data from the past.
+	 * 
+	 * This statement also needs to be before we acquire the shared_mmap lock,
+	 * because in the other case it can cause a deadlock with the acquisition of
+	 * that lock inside of the eviction function and the USED_QUEUE_LOCK.
+	 */
+	void *kpage = pagedir_get_page(user_mmap->pd, user_mmap->vpage);
+	if (kpage && !frame_lock_mmaped(shared_mmap, kpage))
+		kpage = NULL;
+
 	lock_acquire(&shared_mmap->lock);
 
 	/* If the USER_MMAP is the last, remove the SHARED_MMAP, else just remove the
 	 * USER_MMAP.
 	 */
 	if (list_elem_alone(&user_mmap->shared_mmap_elem)) {
+		/* We release that lock since we know that:
+		 *  - this entry will be deleted from the mmaps hash before we free the lock
+		 *    for it, so no one can register themselves to this shared_mmap at any
+		 *    point in the future
+		 *  - this entry will not be paged out by the framing system since, because
+		 *    the FRAME_LOCK_MMAPED() acquires the USED_QUEUE_LOCK and because, 
+		 *    after that, we have acquired this shared mmap's lock, all evictions
+		 *    that can potentially happen on this shared mmap would have finished
+		 *    already.
+		 */
 		lock_release(&shared_mmap->lock);
 
 		/* Remove the SHARED_MMAP, release the MMAPS hashmap afterwards as the
@@ -280,24 +315,40 @@ void mmap_unregister(struct user_mmap *user_mmap)
 		hash_delete(&mmaps, &shared_mmap->mmap_system_elem);
 		lock_release(&mmaps_lock);
 
-		/* Get a FRAME_LOCK on the frame used by the SHARED_MMAP.
-		 * If frame lock succeeds:
-		 *    Write back to file and free the frame. The free SHARED_MMAP.
-		 * If frame lock fails:
-		 *    Frame has been evicted (already written back to file), only need to
-		 *    free SHARED_MMAP.
+		/* When we were locking this frame, we knew that the number of users of
+		 * this mmap would not have changed by the time we ascertained that we
+		 * are the only user of this shared mmap.
+		 *
+		 * Therefore, between when we tried to lock this frame and now no process
+		 * would have been able to load it into memory. Furthermore all evictions of
+		 * this frame would have already finished because of the previous
+		 * acquisition of the SHARED_MMAP lock.
+		 *
+		 * Therefore, whether locking this page has succeeded or failed, we know
+		 * that this is directly corelated to whether it has its own frame in the
+		 * framing system or not. If it does, we can evict it from there, and if it
+		 * not, then we know that it will not be loaded in before the call to FREE()
+		 * (again, because we are the only user of this shared mmap currently).
 		 */
-		void *kpage = pagedir_get_page(user_mmap->pd, user_mmap->vpage);
-		if (kpage && frame_lock_mmaped(shared_mmap, kpage)) {
+		if (kpage) {
 			filesys_enter();
 			write_back(shared_mmap, kpage);
 			file_close(shared_mmap->file);
 			filesys_exit();
-
-			palloc_free_page(kpage);
+			frame_free(kpage);
 		}
+		
 		free(shared_mmap);
 	} else {
+		/* If we are not the only user, we can release that frame lock here.
+		 * However, we still need to ensure that no IO for this mmap can happen for
+		 * other processes that might be waiting to unregister themselves from this
+		 * mmap, so therefore we cannot release the lock on the MMAPS_LOCK before
+		 * freeing this frame.
+		 */
+		if (kpage)
+			frame_unlock_mmaped(shared_mmap, kpage);
+		
 		/* We are not destroying the SHARED_MMAP, so it is fine for other processes
 		 * to attempt to use it. Hence we release the lock on the MMAPS hashmap.
 		 */
@@ -322,7 +373,7 @@ void mmap_unregister(struct user_mmap *user_mmap)
 }
 
 /* Function for converting the elem of the list of mmapings provided in
- * MMAPING_LIST in mmap_register() to an entry.
+ * MMAPING_LIST in MMAP_REGISTER() to an entry.
  */
 struct user_mmap *mmap_list_entry(struct list_elem *elem)
 {
@@ -334,7 +385,6 @@ struct user_mmap *mmap_list_entry(struct list_elem *elem)
  */
 void mmap_load(struct user_mmap *user_mmap)
 {
-	void *kpage = frame_get();
 	struct shared_mmap *shared_mmap = user_mmap->shared_mmap;
 
 	lock_acquire(&shared_mmap->lock);
@@ -347,7 +397,16 @@ void mmap_load(struct user_mmap *user_mmap)
 
 	/* KPAGE is frame locked (cannot be evicted) and the SHARED_MMAP lock is
 	 * acquired, so exclusive access to ensured. Hence it is safe to read.
+	 *
+	 * There is no deadlock here since, in order for FRAME_GET() to attempt to
+	 * acquire the lock for that shared mmap, we must be paged in. However, this
+	 * cannot happen, since we are checking for this in the if statement just
+	 * above. We also cannot be paged in between that if statement and this line
+	 * since the only way for that to happen would be through this very function,
+	 * in which we are synchronized already thanks to having the lock for this
+	 * shared mmap acquired.
 	 */
+	void *kpage = frame_get();
 	filesys_enter();
 	file_seek(shared_mmap->file, shared_mmap->file_offset);
 	file_read(shared_mmap->file, kpage, shared_mmap->length);
@@ -385,6 +444,18 @@ void mmap_frame_evict(void *kpage, struct shared_mmap *shared_mmap,
 {
 	lock_acquire(&shared_mmap->lock);
 
+	/* We need to chain the shared mmap lock and the used queue lock here because
+	 * it may be the case that the shared mmap will soon be unregistered and
+	 * we do not want that to happen while we are evicting.
+	 * 
+	 * We do not need to place this release below setting the page table entries,
+	 * because, unlike in the swap system, we do not rely on them being paged out
+	 * after we have failed to acquire the lock on that frame. This is thanks to
+	 * the fact that, after attempting to lock the frame in the MMAP_UNREGISTER(),
+	 * we acquire the lock for this shared mmap.
+	 */
+	lock_release(used_queue_lock);
+
 	/* Update every page table entry connected to that SHARED_MMAP. Exclusive
 	 * access to each entry is enforced by the SHARED_MMAP lock.
 	 */
@@ -395,9 +466,6 @@ void mmap_frame_evict(void *kpage, struct shared_mmap *shared_mmap,
 						list_entry(elem, struct user_mmap, shared_mmap_elem);
 		pagedir_set_mmaped_page(user_mmap->pd, user_mmap->vpage, user_mmap);
 	}
-
-	/* For letting the used queue take possible swappable pages to evict */
-	lock_release(used_queue_lock);
 
 	/* Write back, check if lock held (if the current process has page faulted
 	 * while writing to file system, do not re-acquire the lock).
