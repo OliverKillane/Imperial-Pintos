@@ -165,7 +165,7 @@ bool frame_lock_mmaped(struct shared_mmap *shared_mmap, void *kpage)
 	 * lock for the specific page that we are evicting there will corelate the
 	 * state that this function has returned and whether the page we were trying
 	 * to lock is paged-in or paged-out.
-	 * 
+	 *
 	 * For the specific reasons of this reliance in this function please refer
 	 * to the comments in MMAP_UNREGISTER() and MMAP_FRAME_EVICT() in mmap.c
 	 */
@@ -200,7 +200,7 @@ bool frame_lock_swappable(uint32_t *pd, void *vpage, void *kpage)
 	 * lock for the specific page that we are evicting there will corelate the
 	 * state that this function has returned and whether the page we were trying
 	 * to lock is paged-in or paged-out.
-	 * 
+	 *
 	 * In this case, this has to do with the PAGEDIR_DESTROY() using this function
 	 * to check whether the page has been evicted to swap or not and whether it
 	 * can safely assume that, if this function fails, it can grab the swap id

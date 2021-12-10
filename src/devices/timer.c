@@ -13,7 +13,7 @@
 #if TIMER_FREQ < 19
 #error 8254 timer requires TIMER_FREQ >= 19
 #endif
-#if TIMER_FREQ > 10000
+#if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
 

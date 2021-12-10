@@ -65,7 +65,6 @@ void swap_page_evict(void *kpage, uint32_t *pd, void *vpage,
 	/* Find the first free swap slot. */
 	lock_acquire(&swap_lock);
 
-
 	int32_t node = 1;
 	if (!bitmap_test(is_free_tree, node))
 		PANIC("Ran out of swap space.");

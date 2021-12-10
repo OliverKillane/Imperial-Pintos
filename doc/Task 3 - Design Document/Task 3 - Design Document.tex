@@ -569,11 +569,11 @@
 						pages as they are evicted.
 					\item Next we give the locked frame to process P. Process P 
 						can then use \fun{swap\_load()} or \fun{mmap\_load()} to 
-						load the required data to the frame. 
+						load the required data to the frame (in case of the latter
+						fetching the frame happens inside of it).
 					\item First the data is loaded to the frame, then the 
 						relevant page table entry is set in P. Finally the frame
-						is unlocked and can be evicted, and P resumes. We then
-						write the data back to either swap or file system.
+						is unlocked and can be evicted, and P resumes.
 				}
 				Page table entries are set in a single store operation which is 
 				atomic to avoid race conditions on page table entries in the 
@@ -593,9 +593,9 @@
 					\bullpara{Circular wait}{When two or more processes are in a circular chain, each waiting for a resource held by the next process}
 				}
 				The only synchronization methods that fit the first 3 conditions are locks and semaphores which are used throughout the virtual memory system.
-				Those however, when acquired simultaneously, are always acquired in the same order. If we imagine a graph of all possible
-				nestings or chainings that can occur in our system ,based on the lock/semaphore acquisition diagrams shown below, it will be a DAG (Directed Acyclic Graph).
-				The only possible synchronization primitive chains or nestings longer than 1  are:
+				Those however, when acquired simultaneously, are always acquired in the same order (except for one spot which shall be explained later). 
+				If we imagine a graph of all possible nestings or chainings that can occur in our system, based on the lock/semaphore acquisition diagrams shown below, 
+				it will be a DAG (Directed Acyclic Graph) (again, except for that one spot). The only possible synchronization primitive chains or nestings longer than 1 are:
 				\compitem{
 					\bullpara{\fun{frame\_get()} evicting a swapped page and paging in a swappable or mmaped page and unlocking it}{
 						\compenum{
@@ -628,6 +628,7 @@
 					\bullpara{\fun{mmap\_load()} loading an mmaping}{
 						\compenum{
 							\item \var{mmaps\_lock}
+							\item \var{used\_queue\_lock}
 							\item \var{filesys\_lock}
 						}
 					}
@@ -638,9 +639,21 @@
 						}
 					}
 				}
-				Because no resources can be acquired in a circular chain by the definition of a DAG, no deadlock can occur.
+				The only possible deadlock that can happen is between \fun{mmap\_load()} and \fun{frame\_get()}.
+				Here, we need to get a new frame inside of a \var{shared\_mmap$\to$lock}. 
+				However, calling \fun{frame\_get()} there will not cause a
+				deadlock. This is because a check is done right above calling that function to ensure that the \var{shared\_mmap} is not
+				already loaded. Moreover, this \var{shared\_mmap} can only be loaded in by this very function in which there
+				is a lock acquired, so the property (the shared mmap not being loaded there) is synchronised for that \var{shared\_mmap}.
 				\\
-				\\The following diagrams show the locking and unlocking of all locks used in the virtual memory and syscall system:\\
+				\\This means that it is not possible for it to be accessed from \fun{frame\_get()}, and that is why there is actually
+				no circular acquisition there and, in terms of separate \struct{shared\_mmap}s, our locking dependency graph is still a DAG.
+				\\
+				\\ Therefore, because no resources can be acquired in a circular
+				chain by the definition of a DAG, no deadlock can occur.
+				\\
+				\\The following diagrams show the locking and unlocking of all locks used in the virtual memory and syscall system.
+				\\
 				\begin{minipage}{\textwidth}
 					The legend for following diagrams:
 					\centerimage{width=\textwidth}{synch legend.png}
@@ -673,11 +686,11 @@
 				be evicted. How do you ensure that Q cannot access or modify the page 
 				during the eviction process?)}
 				\\
-				\\As stated in B3, we flag Q's frame as evicted before writing 
-				it to swap. It is important to note that modifying the PTE of 
-				Q's page to mark it as evicted is atomic. We only write the Q's
-				frame's data after marking it as evicted. This is so no data 
-				races can occur between Q's page being set as evicted and Q's 
+				\\As stated in the answer to question B3, we flag Q's frame as evicted 
+				before writing it to swap. It is important to note that modifying the 
+				page table entry of Q's page to mark it as evicted is atomic. We
+				only write the Q's frame's data after marking it as evicted. This is 
+				so no data races can occur between Q's page being set as evicted and Q's 
 				attempts to modify or access data in its page.
 				
 			\subsubsection*{B6 (2 mark)}
@@ -687,14 +700,23 @@
 				\\
 				\\ When evicting a frame, we maintain exclusive access to the 
 				\var{used\_queue} for the minimum time possible by acquiring 
-				the \var{used\_queue\_lock} and passing it to 
-				\fun{swap\_frame\_evict()}. This function releases the 
+				the \var{used\_queue\_lock} and passing it to either
+				\fun{swap\_page\_evict()} or \fun{mmap\_frame\_evict()}. 
+				\\
+				\\In the case of the swap, the eviction function releases
 				\var{swap\_lock} after it has finished writing the evicted frame
 				to swap. Therefore, if Q attempts to load the page back in 
-				from swap, then it must wait until P has finished writing Q's 
+				from swap, it must wait until P has finished writing Q's 
 				frame to swap. This is because the \var{swap\_lock} must also be 
 				acquired in \fun{swap\_load()} in order to load the data from 
 				swap.
+				\\ In the case of evicting an mmap, since the synchronisation on
+				accesses to its associated page table entries is either only
+				needed without any requirement for bigger synchronization, or
+				done with the \var{shared\_mmap$\to$lock} acquired. Moreover, the data
+				loads and writes for that mmap are done inside that shared mmap lock
+				as well, so there is no race there either (ergo P must wait until
+				Q has finished writing the data to the filesystem before loading).
 
 			\subsubsection*{B7 (2 mark)}
 				\question{Explain how you handle access to user pages that are not 
@@ -732,21 +754,21 @@
 				falls along this continuum and why you chose to design it this way.}
 				\\
 				\\Our primary goals were high performance, and low memory utilisation, with parallelism 
-				as a secondary. Hence tried to synchronize without significant costs
+				being a secondary objective. Hence, we tried to implement the synchronisation without significant costs
 				to the performance of our system. 
 				\\
-				\\That means that accesses to data that is frequently aliased had to be either 
+				\\This means that accesses to data that is frequently aliased had to be either 
 				synchronized with few locks (e.g frame locking) or with a coarser lock (e.g swap system).
 				Usually this did not result in a large loss in potential parallelism, for example with 
-				the swap system, only one block device \const{SWAP\_BLOCK} is used, which is locked coarsely.
+				the swap system, only one block device \const{SWAP\_BLOCK} is used, which is internally locked coarsely as well.
 				\\
-				\\ However we were able to allow for 'simultaneous' operation of mmap page-in, mmap page-out, 
+				\\ However, we were able to allow for 'simultaneous' operation of mmap page-in, mmap page-out, 
 				lazy-loading and the swap system, by retaining locks only when needed to prevent race conditions 
 				on data structures such as our \var{used\_queue} and page table entries.
 				\\
 				\\In terms of optimizing sychronization, we decided that the page-faulting is the
 				most time-critical section of our system. We wanted to make the synchronisation
-				there as fine-grained as possible without worrying about the other parts of the
+				there as fine-grained as possible without worrying about the speed of the other parts of the
 				code in which we manage aspects of virtual memory. Such parts include setting up
 				the executable for a new process, exiting a process, or mmaping a file to user's memory.
 				\\
