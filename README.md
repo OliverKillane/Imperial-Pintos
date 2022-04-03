@@ -232,12 +232,20 @@ cd src/devices && make check -j
 # To run Task 1 - Scheduling
 cd src/threads && make check -j
 
-# To run Task 2 - User programs
+# To run Task 2 - User Programs
 cd src/userprog && make check -j
 
 # To run Task 3 - Virtual Memory
 cd src/vm && make check -j
 ```
+
+## CI
+The continuous integration for this repository is for GitLab (where the repo was hosted during development).
+It contains a basic pipeline for building and running the unit tests within a docker build specifically for the project, as well as linting.
+
+The CI is restricted to merge requests as running the tests is quite intensive.
+
+Linting uses the same style as the linux kernel, and is only applied to files changed from the original provided files. This is to maintain consistent formatting, but prevent the diff being overwhelming for markers (as would be the case if all files, including those untouched were updated to conform to the style).
 
 ## Authors
 This project was completed by Bartłomiej Cieślar, Jordan Hall, Oliver Killane and Robert Buxton from the 11th of October to the 10th of December.
