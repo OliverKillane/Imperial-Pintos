@@ -20,8 +20,11 @@ That said, there is nothing against using this repo for inspiration & general di
 
 ## Design Documentation
 We have included the `tex` for our design documents. Note that these reference code directly from inside the repo so must be compiled in-place.
-![Untitled](https://user-images.githubusercontent.com/44177991/161397254-47ae48d4-c15a-464f-bbd3-5196def780bf.png)
+- [Task 1 - Scheduling](doc/Task%201%20-%20Design%20Document/Task%201%20-%20Design%20Document.pdf)
+- [Task 2 - User Programs](doc/Task%202%20-%20Design%20Document/Task%202%20-%20Design%20Document.pdf)
+- [Task 3 - Virtual Memory](doc/Task%203%20-%20Design%20Document/Task%203%20-%20Design%20Document.pdf)
 
+![Untitled](https://user-images.githubusercontent.com/44177991/161397254-47ae48d4-c15a-464f-bbd3-5196def780bf.png)
 ## Get Started
 ### Prerequisites
 - `qemu-system-i386` (can be installed with `qemu-system`) (used to emulate i386-based IBM PC clone hardware)
