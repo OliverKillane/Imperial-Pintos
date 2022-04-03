@@ -10,6 +10,8 @@ Imperial College have since heavily adapted pintos, and it is run as a 9 week, 4
 The pintos project is designed to help students learn operating systems development by implementing some major kernel components, including process/thread scheduling, syscalls, user processes and virtual memory. 
 While maintaining high standards of code quality, and designing to prevent concurrency related bugs (a major part of the design).
 
+## Authors
+This project was completed by Bartłomiej Cieślar, Jordan Hall, Oliver Killane and Robert Buxton from the 11th of October to the 10th of December.
 ## Imperial Student Usage
 Pintos beans are best served warm, plagarism from this repo will result in a cold reception by markers. Imperial are (*rightly*) meticulous with their checks. 
 Even if this is missed, this repo contains some added bugs to prevent copy & paste idiocy. 
@@ -27,6 +29,15 @@ We have included the `tex` for our design documents. Note that these reference c
 - `gcc`
 - GNU Binutils (needed as compilation makes use of several utilities)
 - `make` (used for build and tests)
+
+### Building Pintos
+Each task has an associated subdirectory for that component of the kernel, and a makefile for building the kernel.
+
+For the final version of the kernel (with virtual memory, user program support, our scheduler etc) use the makefile for Task 3 (Virtual Memory)
+```bash
+cd src/vm # src/devices (Task 0), src/threads (Task 1), src/userprog (Task 2)
+make
+```
 
 ### Running Pintos
 1. To create a simulated disk, use the command
@@ -239,13 +250,10 @@ cd src/userprog && make check -j
 cd src/vm && make check -j
 ```
 
-## CI
+## Continuous Integration
 The continuous integration for this repository is for GitLab (where the repo was hosted during development).
 It contains a basic pipeline for building and running the unit tests within a docker build specifically for the project, as well as linting.
 
 The CI is restricted to merge requests as running the tests is quite intensive.
 
 Linting uses the same style as the linux kernel, and is only applied to files changed from the original provided files. This is to maintain consistent formatting, but prevent the diff being overwhelming for markers (as would be the case if all files, including those untouched were updated to conform to the style).
-
-## Authors
-This project was completed by Bartłomiej Cieślar, Jordan Hall, Oliver Killane and Robert Buxton from the 11th of October to the 10th of December.
